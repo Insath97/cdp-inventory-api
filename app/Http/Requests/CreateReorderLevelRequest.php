@@ -1,0 +1,78 @@
+<?php
+
+namespace App\Http\Requests;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\Rule;
+
+class CreateReorderLevelRequest extends FormRequest
+{
+    /**
+     * Determine if the user is authorized to make this request.
+     */
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * Get the validation rules that apply to the request.
+     */
+    public function rules(): array
+    {
+        return [
+            'product_id' => [
+                'required',
+                'exists:products,id',
+                Rule::unique('reorder_levels')->where(function ($query) {
+                    $variantId = $this->input('product_variant_id');
+                    return $query->where('branch_id', $this->input('branch_id'))
+                                 ->where(function ($q) use ($variantId) {
+                                     if ($variantId === null) {
+                                         $q->whereNull('product_variant_id');
+                                     } else {
+                                         $q->where('product_variant_id', $variantId);
+                                     }
+                                 });
+                }),
+            ],
+            'product_variant_id' => 'nullable|exists:product_variants,id',
+            'branch_id' => 'required|exists:branches,id',
+            'min_quantity' => 'required|numeric|min:0',
+            'reorder_quantity' => 'required|numeric|min:0',
+            'is_active' => 'boolean',
+        ];
+    }
+
+    /**
+     * Get custom messages for validator errors.
+     */
+    public function messages(): array
+    {
+        return [
+            'product_id.unique' => 'A reorder level configuration already exists for this product, variant, and branch combination.',
+        ];
+    }
+
+    protected function failedValidation(Validator $validator)
+    {
+        $errorMessages = $validator->errors();
+        $fieldErrors = collect($errorMessages->getMessages())->map(function ($messages, $field) {
+            return [
+                'field' => $field,
+                'messages' => $messages,
+            ];
+        })->values();
+
+        $message = $fieldErrors->count() > 1
+            ? 'There are multiple validation errors. Please review the form and correct the issues.'
+            : 'There is an issue with the input for ' . $fieldErrors->first()['field'] . '.';
+
+        throw new HttpResponseException(response()->json([
+            'message' => $message,
+            'errors' => $fieldErrors,
+        ], 422));
+    }
+}
