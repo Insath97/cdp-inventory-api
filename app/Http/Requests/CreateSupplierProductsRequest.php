@@ -24,8 +24,8 @@ class CreateSupplierProductsRequest extends FormRequest
         return [
             'supplier_id' => 'required|exists:suppliers,id',
             'product_id' => 'required|exists:products,id',
-            'unit_id' => 'required|exists:units,id',
-            'supply_quantity' => 'required|numeric|min:0',
+            'unit_id' => 'nullable|exists:units,id',
+            'supply_quantity' => 'nullable|numeric|min:0',
             'unit_price' => 'nullable|numeric|min:0',
             'is_preferred' => 'boolean',
         ];

@@ -7,6 +7,7 @@ use App\Http\Requests\CreateGrnItemRequest;
 use App\Http\Requests\UpdateGrnItemRequest;
 use App\Models\GrnItem;
 use App\Models\Grn;
+use App\Models\Product;
 use App\Models\ExpiryRecord;
 use App\Services\ProductPriceService;
 use App\Services\SupplierProductService;
@@ -94,6 +95,16 @@ class GrnItemController extends Controller implements HasMiddleware
         try {
             DB::beginTransaction();
             $data = $request->validated();
+
+            $product = Product::find($data['product_id'] ?? null);
+            if ($product && $product->is_pending_setup) {
+                DB::rollBack();
+                return response()->json([
+                    'status' => 'error',
+                    'message' => "This product's setup is incomplete and cannot be received yet.",
+                ], 422);
+            }
+
             $grn = Grn::find($data['grn_id'] ?? null);
             if (empty($data['batch_number']) && $grn?->batch_number) {
                 $data['batch_number'] = $grn->batch_number;
@@ -103,11 +114,19 @@ class GrnItemController extends Controller implements HasMiddleware
 
             // Receiving this product from the GRN's supplier is what "using
             // a product under a supplier" means for direct-purchase GRNs
-            // (no PO involved) — ensure the pivot link exists either way.
+            // (no PO involved) — ensure the pivot link exists either way, and
+            // keep its price current even if the link already existed (e.g.
+            // created earlier by a PO with no price on it yet).
             if ($grn?->supplier_id && $grnItem->product_id) {
-                app(SupplierProductService::class)->ensureLinked($grn->supplier_id, $grnItem->product_id, [
-                    'unit_price' => $grnItem->unit_price,
-                ]);
+                if ($grnItem->unit_price) {
+                    app(SupplierProductService::class)->syncPrice(
+                        $grn->supplier_id,
+                        $grnItem->product_id,
+                        (float) $grnItem->unit_price
+                    );
+                } else {
+                    app(SupplierProductService::class)->ensureLinked($grn->supplier_id, $grnItem->product_id);
+                }
             }
 
             $qty = floatval($grnItem->quantity_received ?? 0);
@@ -268,7 +287,19 @@ class GrnItemController extends Controller implements HasMiddleware
 
             DB::beginTransaction();
 
-            $grnItem->update($request->validated());
+            $data = $request->validated();
+
+            $resolvedProductId = $data['product_id'] ?? $grnItem->product_id;
+            $product = Product::find($resolvedProductId);
+            if ($product && $product->is_pending_setup) {
+                DB::rollBack();
+                return response()->json([
+                    'status' => 'error',
+                    'message' => "This product's setup is incomplete and cannot be received yet.",
+                ], 422);
+            }
+
+            $grnItem->update($data);
 
             if ($grnItem->wasChanged('unit_price') && $grnItem->unit_price) {
                 $grn = $grnItem->grn;
@@ -280,6 +311,14 @@ class GrnItemController extends Controller implements HasMiddleware
                     date:       $grn?->received_date?->toDateString(),
                     createdBy:  Auth::id() ?? $grn?->received_by,
                 );
+
+                if ($grn?->supplier_id && $grnItem->product_id) {
+                    app(SupplierProductService::class)->syncPrice(
+                        $grn->supplier_id,
+                        $grnItem->product_id,
+                        (float) $grnItem->unit_price
+                    );
+                }
             }
 
             $qtyOrdered = floatval($grnItem->quantity_ordered ?? 0);

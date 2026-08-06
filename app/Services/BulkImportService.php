@@ -110,7 +110,7 @@ class BulkImportService
                 'unique' => 'product_code',
                 'required' => ['product_code', 'product_name'],
                 'columns' => [
-                    'product_code', 'product_name', 'slug', 'description', 'product_type',
+                    'product_code', 'id_number', 'product_name', 'slug', 'description', 'product_type',
                     'brand_id', 'main_category_id', 'sub_category_id', 'measurement_id', 'unit_id',
                     'container_id', 'supplier_id', 'is_variant', 'is_active', 'is_default',
                 ],

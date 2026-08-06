@@ -26,6 +26,30 @@ class SupplierProductService
         );
     }
 
+    /**
+     * Ensure a supplier_products link exists for the given supplier/product pair
+     * and keep its unit_price current — unlike ensureLinked(), this updates the
+     * price on an already-existing row instead of leaving it untouched.
+     */
+    public function syncPrice(int $supplierId, int $productId, float $unitPrice): SupplierProduct
+    {
+        $supplierProduct = SupplierProduct::firstOrNew(
+            ['supplier_id' => $supplierId, 'product_id' => $productId]
+        );
+
+        if (! $supplierProduct->exists) {
+            $supplierProduct->unit_id = $this->resolveDefaultUnitId($productId);
+            $supplierProduct->supply_quantity = 1;
+            $supplierProduct->is_preferred = false;
+            $supplierProduct->is_active = true;
+        }
+
+        $supplierProduct->unit_price = $unitPrice;
+        $supplierProduct->save();
+
+        return $supplierProduct;
+    }
+
     protected function resolveDefaultUnitId(int $productId): ?int
     {
         $productUnitId = Product::whereKey($productId)->value('unit_id');

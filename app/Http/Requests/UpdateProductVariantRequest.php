@@ -40,6 +40,12 @@ class UpdateProductVariantRequest extends FormRequest
             'description' => 'nullable|string',
             'is_default' => 'boolean',
             'is_active' => 'boolean',
+            'brand_id' => 'nullable|exists:brands,id',
+            'main_category_id' => 'nullable|exists:main_categories,id',
+            'sub_category_id' => 'nullable|exists:sub_categories,id',
+            'measurement_id' => 'nullable|exists:measurement_units,id',
+            'unit_id' => 'nullable|exists:units,id',
+            'container_id' => 'nullable|exists:containers,id',
         ];
     }
 

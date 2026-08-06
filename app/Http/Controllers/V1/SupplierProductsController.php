@@ -10,6 +10,7 @@ use Illuminate\Routing\Controllers\Middleware;
 use App\Traits\ActivityLogTrait;
 use App\Http\Requests\CreateSupplierProductsRequest;
 use App\Http\Requests\UpdateSupplierProductsRequest;
+use App\Services\SupplierProductService;
 
 class SupplierProductsController extends Controller
 {
@@ -89,17 +90,25 @@ class SupplierProductsController extends Controller
             DB::beginTransaction();
 
             $data = $request->validated();
-            $supplierProduct = SupplierProduct::create($data);
+            $supplierProduct = app(SupplierProductService::class)->ensureLinked(
+                $data['supplier_id'],
+                $data['product_id'],
+                $data
+            );
 
             DB::commit();
 
-            $this->logActivity('CREATE', 'SupplierProduct', "Created supplier product: {$supplierProduct->id}");
+            if ($supplierProduct->wasRecentlyCreated) {
+                $this->logActivity('CREATE', 'SupplierProduct', "Created supplier product: {$supplierProduct->id}");
+            }
 
             return response()->json([
                 'status' => 'success',
-                'message' => 'Supplier product created successfully',
+                'message' => $supplierProduct->wasRecentlyCreated
+                    ? 'Supplier product created successfully'
+                    : 'Supplier product already linked',
                 'data' => $supplierProduct
-            ], 201);
+            ], $supplierProduct->wasRecentlyCreated ? 201 : 200);
         } catch (\Throwable $th) {
             DB::rollBack();
             return response()->json([

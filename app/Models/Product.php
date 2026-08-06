@@ -15,6 +15,7 @@ class Product extends Model
         'container_id',
         'supplier_id',
         'product_code',
+        'id_number',
         'product_name',
         'slug',
         'description',
@@ -22,13 +23,15 @@ class Product extends Model
         'is_active',
         'is_default',
         'product_type',
-        'created_by'
+        'created_by',
+        'is_pending_setup'
     ];
 
     protected $casts = [
         'is_variant' => 'boolean',
         'is_active' => 'boolean',
-        'is_default' => 'boolean'
+        'is_default' => 'boolean',
+        'is_pending_setup' => 'boolean'
     ];
 
     // Screens written before latest_purchase_price existed read
@@ -67,7 +70,8 @@ class Product extends Model
         return $query->where(function ($q) use ($search) {
             $q->where('product_name', 'LIKE', "%{$search}%")
                 ->orWhere('description', 'LIKE', "%{$search}%")
-                ->orWhere('product_code', 'LIKE', "%{$search}%");
+                ->orWhere('product_code', 'LIKE', "%{$search}%")
+                ->orWhere('id_number', 'LIKE', "%{$search}%");
         });
     }
 

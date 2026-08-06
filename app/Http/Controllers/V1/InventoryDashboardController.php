@@ -113,7 +113,7 @@ class InventoryDashboardController extends Controller implements HasMiddleware
                         'branch' => $level->branch->name ?? 'Unknown Branch',
                         'current_stock' => $currentStock,
                         'min_stock' => $minStock,
-                        'unit' => $level->product->unit->name ?? 'Pcs',
+                        'unit' => optional($level->productVariant?->unit ?? $level->product->unit)->name ?? 'Pcs',
                         'ratio' => $minStock > 0 ? round(($currentStock / $minStock) * 100) : 0
                     ];
                 }
@@ -145,7 +145,7 @@ class InventoryDashboardController extends Controller implements HasMiddleware
                         'branch' => $record->branch->name ?? 'Unknown Branch',
                         'batch_number' => $record->batch_number,
                         'quantity' => floatval($record->quantity),
-                        'unit' => $record->product->unit->name ?? 'Pcs',
+                        'unit' => optional($record->productVariant?->unit ?? $record->product->unit)->name ?? 'Pcs',
                         'expiry_date' => $record->expiry_date->format('Y-m-d'),
                         'days_remaining' => max(0, now()->diffInDays($record->expiry_date, false))
                     ];

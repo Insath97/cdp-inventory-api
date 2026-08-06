@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
 use App\Traits\ActivityLogTrait;
 use App\Services\ProductPriceService;
+use App\Services\SupplierProductService;
 use App\Http\Controllers\Controller;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
@@ -226,7 +227,12 @@ class ProductController extends Controller implements HasMiddleware
                 'container',
                 'supplier',
                 'suppliers',
-                'variants'
+                'variants.brand',
+                'variants.mainCategory',
+                'variants.subCategory',
+                'variants.measurement',
+                'variants.unit',
+                'variants.container',
             ])->find($id);
 
             if (!$product) {
@@ -287,6 +293,25 @@ class ProductController extends Controller implements HasMiddleware
                 ->take(20)
                 ->get(['id', 'unit_price', 'source_type', 'source_id', 'effective_date']);
 
+            // Every price history row today is sourced from a GRN receipt —
+            // resolve the human-readable GRN number so the report doesn't have
+            // to show the raw source_id.
+            $grnSourceIds = $priceHistory->where('source_type', \App\Models\Grn::class)->pluck('source_id')->unique();
+            $grnNumbersById = \App\Models\Grn::whereIn('id', $grnSourceIds)->pluck('grn_number', 'id');
+
+            $priceHistory = $priceHistory->map(function ($h) use ($grnNumbersById) {
+                return [
+                    'id' => $h->id,
+                    'unit_price' => $h->unit_price,
+                    'source_type' => $h->source_type,
+                    'source_id' => $h->source_id,
+                    'source_reference' => $h->source_type === \App\Models\Grn::class
+                        ? ($grnNumbersById->get($h->source_id) ?? "GRN #{$h->source_id}")
+                        : null,
+                    'effective_date' => $h->effective_date,
+                ];
+            });
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'Product lookup details retrieved successfully',
@@ -328,6 +353,19 @@ class ProductController extends Controller implements HasMiddleware
             DB::beginTransaction();
 
             $data = $request->validated();
+
+            if (array_key_exists('is_pending_setup', $data) && !$data['is_pending_setup']) {
+                $mainCategoryId = array_key_exists('main_category_id', $data) ? $data['main_category_id'] : $product->main_category_id;
+                $unitId = array_key_exists('unit_id', $data) ? $data['unit_id'] : $product->unit_id;
+
+                if (!$mainCategoryId || !$unitId) {
+                    DB::rollBack();
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Category and Unit are required before this product can be marked complete.',
+                    ], 422);
+                }
+            }
 
             $user = Auth::user();
             if ($user) {
@@ -377,6 +415,17 @@ class ProductController extends Controller implements HasMiddleware
                         }
                     }
                 }
+            }
+
+            // Auto-ensure the supplier_products pivot link when supplier_id is set
+            if ($product->supplier_id) {
+                app(SupplierProductService::class)->ensureLinked(
+                    (int) $product->supplier_id,
+                    (int) $product->id,
+                    [
+                        'unit_id' => $product->unit_id,
+                    ]
+                );
             }
 
             DB::commit();
@@ -584,7 +633,10 @@ class ProductController extends Controller implements HasMiddleware
         try {
             $product = Product::withoutGlobalScope('department')
                 ->where('is_active', true)
-                ->with(['brand', 'mainCategory', 'subCategory', 'measurement', 'unit', 'container', 'supplier', 'suppliers', 'variants'])
+                ->with([
+                    'brand', 'mainCategory', 'subCategory', 'measurement', 'unit', 'container', 'supplier', 'suppliers',
+                    'variants.brand', 'variants.mainCategory', 'variants.subCategory', 'variants.measurement', 'variants.unit', 'variants.container',
+                ])
                 ->find($id);
 
             if (!$product) {

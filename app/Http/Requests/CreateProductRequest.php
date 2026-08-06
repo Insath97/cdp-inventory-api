@@ -44,12 +44,14 @@ class CreateProductRequest extends FormRequest
             'container_id' => 'nullable|exists:containers,id',
             'supplier_id' => 'nullable|exists:suppliers,id',
             'product_code' => 'required|string|max:255|unique:products,product_code',
+            'id_number' => 'nullable|string|max:255',
             'product_name' => 'required|string|max:255',
             'slug' => 'nullable|string|max:255|unique:products,slug',
             'description' => 'nullable|string',
             'is_variant' => 'boolean',
             'is_active' => 'boolean',
             'is_default' => 'boolean',
+            'is_pending_setup' => 'nullable|boolean',
         ];
 
         $rules['product_type'] = 'nullable|string|in:IT,Admin';
