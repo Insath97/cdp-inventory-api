@@ -15,7 +15,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('purchase_order_id')->nullable()->constrained('purchase_orders')->nullOnDelete();
             $table->foreignId('supplier_id')->constrained('suppliers');
-            $table->foreignId('branch_id')->constrained('branches');
+            $table->foreignId('branch_id')->nullable()->constrained('branches');
             $table->foreignId('received_by')->constrained('users');
             $table->string('grn_number')->unique();
             $table->string('batch_number')->nullable();

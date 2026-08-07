@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use App\Models\User;
+use App\Services\NotificationRecipientService;
 
 class PurchaseReturnNoteController extends Controller implements HasMiddleware
 {
@@ -164,7 +165,7 @@ class PurchaseReturnNoteController extends Controller implements HasMiddleware
                     $qty = floatval($item->quantity_returned ?? 0);
                     if ($qty <= 0 || in_array(strtolower($item->reason ?? ''), ['short delivery', 'auto-generated for short delivery'])) continue;
 
-                    StockLedgerService::assertSufficientStock($item->product_id, $prn->branch_id, $qty);
+                    StockLedgerService::assertSufficientStock($item->product_id, $prn->branch_id, $qty, 'Returned Quantity');
 
                     StockLedgerService::recordOut(
                         productId:       $item->product_id,
@@ -195,10 +196,11 @@ class PurchaseReturnNoteController extends Controller implements HasMiddleware
                 ]);
 
                 $recipientService = app(NotificationRecipientService::class);
-                $targets = $recipientService->usersByBranchRoles($prn->branch, ['ADMIN', 'SUPER ADMIN', 'REPORTING MANAGER']);
-                if ($targets->isEmpty()) {
-                    $targets = $recipientService->usersByRoles(['ADMIN', 'SUPER ADMIN']);
-                }
+                // Branch-based notification commented out - PRN does not use branch
+                // $targets = $recipientService->usersByBranchRoles($prn->branch, ['ADMIN', 'SUPER ADMIN', 'REPORTING MANAGER']);
+                // if ($targets->isEmpty()) {
+                $targets = $recipientService->usersByRoles(['ADMIN', 'SUPER ADMIN']);
+                // }
 
                 foreach ($targets as $targetUser) {
                     $targetUser->notify($notification);
@@ -217,7 +219,7 @@ class PurchaseReturnNoteController extends Controller implements HasMiddleware
             return response()->json([
                 'status'  => 'success',
                 'message' => 'Purchase return note created successfully',
-                'data'    => $prn->load(['grn', 'supplier', 'branch', 'creator', 'items']),
+                'data'    => $prn->load(['grn', 'supplier', 'creator', 'items']),
             ], 201);
         } catch (InsufficientStockException $e) {
             DB::rollBack();
@@ -244,7 +246,7 @@ class PurchaseReturnNoteController extends Controller implements HasMiddleware
     public function show(string $id)
     {
         try {
-            $prn = PurchaseReturnNote::with(['grn', 'supplier', 'branch', 'creator', 'items.product', 'items.productVariant.product', 'items.unit'])->find($id);
+            $prn = PurchaseReturnNote::with(['grn', 'supplier', 'creator', 'items.product', 'items.productVariant.product', 'items.unit'])->find($id);
 
             if (! $prn) {
                 return response()->json([
@@ -365,7 +367,7 @@ class PurchaseReturnNoteController extends Controller implements HasMiddleware
                         $qty = floatval($item->quantity_returned ?? 0);
                         if ($qty <= 0 || in_array(strtolower($item->reason ?? ''), ['short delivery', 'auto-generated for short delivery'])) continue;
 
-                        StockLedgerService::assertSufficientStock($item->product_id, $prn->branch_id, $qty);
+                        StockLedgerService::assertSufficientStock($item->product_id, $prn->branch_id, $qty, 'Returned Quantity');
 
                         StockLedgerService::recordOut(
                             productId:       $item->product_id,
@@ -410,7 +412,7 @@ class PurchaseReturnNoteController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Purchase return note updated successfully',
-                'data' => $prn->load(['grn', 'supplier', 'branch', 'creator', 'items']),
+                'data' => $prn->load(['grn', 'supplier', 'creator', 'items']),
             ]);
         } catch (InsufficientStockException $e) {
             DB::rollBack();

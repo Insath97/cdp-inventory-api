@@ -406,38 +406,12 @@ class StockTransferController extends Controller implements HasMiddleware
             }
         }
 
-        // CANCEL: reverse stock OUT when a sent transfer is cancelled
-        if ($wasSent && $currentStatus === 'cancelled' && $fromBranchId) {
-            $hasOutEntries = StockLedger::where('reference_type', StockTransfer::class)
-                ->where('reference_id', $stockTransfer->id)
-                ->where('quantity_out', '>', 0)
-                ->exists();
-
-            if ($hasOutEntries) {
-                foreach ($stockTransfer->items as $item) {
-                    $qty = floatval($item->quantity_sent ?? $item->quantity_requested ?? 0);
-                    if ($qty <= 0) continue;
-
-                    StockLedgerService::recordIn(
-                        productId:       $item->product_id,
-                        variantId:       $item->product_variant_id,
-                        branchId:        $fromBranchId,
-                        quantity:        $qty,
-                        unitId:          $item->unit_id,
-                        referenceType:   StockTransfer::class . '_Reversal',
-                        referenceId:     $stockTransfer->id,
-                        transactionDate: now()->toDateString(),
-                        createdBy:       $createdBy,
-                    );
-
-                    $this->logActivity('CREATE', 'StockLedger', "Transfer CANCEL reversal IN: Branch #{$fromBranchId}, Item #{$item->id}");
-                }
-            }
-        }
-
-        // IN: add to destination branch when transfer is received
-        if ($previousStatus !== 'received' && $currentStatus === 'received' && $toBranchId) {
-            // Idempotency: only post IN if not already posted for received
+        // IN: add to destination branch — this app's transfer flow is
+        // Pending → Approved → Cancelled (no separate in-transit/received
+        // confirmation step), so the destination receives stock at the same
+        // "approved" transition that debits the source, not at a later
+        // "received" status the UI never sets.
+        if (! $wasSent && $isSent && $toBranchId) {
             $alreadyPostedIn = StockLedger::where('reference_type', StockTransfer::class)
                 ->where('reference_id', $stockTransfer->id)
                 ->where('quantity_in', '>', 0)
@@ -462,6 +436,68 @@ class StockTransferController extends Controller implements HasMiddleware
                     );
 
                     $this->logActivity('CREATE', 'StockLedger', "Transfer IN: Branch #{$toBranchId}, Item #{$item->id}");
+                }
+            }
+        }
+
+        // CANCEL: reverse both sides when an already-approved transfer is
+        // cancelled — the source gets its stock back, and the matching
+        // amount is pulled back out of the destination.
+        if ($wasSent && $currentStatus === 'cancelled') {
+            if ($fromBranchId) {
+                $hasOutEntries = StockLedger::where('reference_type', StockTransfer::class)
+                    ->where('reference_id', $stockTransfer->id)
+                    ->where('quantity_out', '>', 0)
+                    ->exists();
+
+                if ($hasOutEntries) {
+                    foreach ($stockTransfer->items as $item) {
+                        $qty = floatval($item->quantity_sent ?? $item->quantity_requested ?? 0);
+                        if ($qty <= 0) continue;
+
+                        StockLedgerService::recordIn(
+                            productId:       $item->product_id,
+                            variantId:       $item->product_variant_id,
+                            branchId:        $fromBranchId,
+                            quantity:        $qty,
+                            unitId:          $item->unit_id,
+                            referenceType:   StockTransfer::class . '_Reversal',
+                            referenceId:     $stockTransfer->id,
+                            transactionDate: now()->toDateString(),
+                            createdBy:       $createdBy,
+                        );
+
+                        $this->logActivity('CREATE', 'StockLedger', "Transfer CANCEL reversal IN: Branch #{$fromBranchId}, Item #{$item->id}");
+                    }
+                }
+            }
+
+            if ($toBranchId) {
+                $hasInEntries = StockLedger::where('reference_type', StockTransfer::class)
+                    ->where('reference_id', $stockTransfer->id)
+                    ->where('quantity_in', '>', 0)
+                    ->where('branch_id', $toBranchId)
+                    ->exists();
+
+                if ($hasInEntries) {
+                    foreach ($stockTransfer->items as $item) {
+                        $qty = floatval($item->quantity_received ?? $item->quantity_sent ?? $item->quantity_requested ?? 0);
+                        if ($qty <= 0) continue;
+
+                        StockLedgerService::recordOut(
+                            productId:       $item->product_id,
+                            variantId:       $item->product_variant_id,
+                            branchId:        $toBranchId,
+                            quantity:        $qty,
+                            unitId:          $item->unit_id,
+                            referenceType:   StockTransfer::class . '_Reversal',
+                            referenceId:     $stockTransfer->id,
+                            transactionDate: now()->toDateString(),
+                            createdBy:       $createdBy,
+                        );
+
+                        $this->logActivity('CREATE', 'StockLedger', "Transfer CANCEL reversal OUT: Branch #{$toBranchId}, Item #{$item->id}");
+                    }
                 }
             }
         }

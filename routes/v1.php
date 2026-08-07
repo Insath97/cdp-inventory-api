@@ -30,7 +30,6 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
     Route::post('login', [AuthController::class, 'login'])->middleware('throttle:login');
-    Route::get('public/products/{id}', [ProductController::class, 'showPublicProduct']);
 });
 
 /* protected routes */
@@ -156,6 +155,7 @@ Route::middleware(['auth:api', 'throttle:300,1'])->prefix('v1')->group(function 
     Route::apiResource('grns', \App\Http\Controllers\V1\GrnController::class);
 
     // GRN Items
+    Route::get('grn-items/next-serial', [\App\Http\Controllers\V1\GrnItemController::class, 'nextSerial']);
     Route::apiResource('grn-items', \App\Http\Controllers\V1\GrnItemController::class);
     Route::patch('grn-items/{id}/activate', [\App\Http\Controllers\V1\GrnItemController::class, 'activate']);
     Route::patch('grn-items/{id}/deactivate', [\App\Http\Controllers\V1\GrnItemController::class, 'deactivate']);
@@ -171,9 +171,13 @@ Route::middleware(['auth:api', 'throttle:300,1'])->prefix('v1')->group(function 
     Route::patch('supplier-products/{id}/deactivate', [\App\Http\Controllers\V1\SupplierProductsController::class, 'deactivate']);
 
     // Stock Ledger
+    // Registered before the apiResource below so "balance" / "branch-stock" isn't swallowed by the {stock_ledger} show route.
+    Route::get('stock-ledgers/balance', [\App\Http\Controllers\V1\StockLedgerController::class, 'balance']);
+    Route::get('stock-ledgers/branch-stock', [\App\Http\Controllers\V1\StockLedgerController::class, 'branchStock']);
     Route::apiResource('stock-ledgers', \App\Http\Controllers\V1\StockLedgerController::class);
     Route::patch('stock-ledgers/{id}/activate', [\App\Http\Controllers\V1\StockLedgerController::class, 'activate']);
     Route::patch('stock-ledgers/{id}/deactivate', [\App\Http\Controllers\V1\StockLedgerController::class, 'deactivate']);
+
 
     // Money activities ledger (read-only aggregation of all financial events)
     Route::get('money-ledger', [\App\Http\Controllers\V1\MoneyLedgerController::class, 'index']);

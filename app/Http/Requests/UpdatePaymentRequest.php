@@ -23,7 +23,7 @@ class UpdatePaymentRequest extends FormRequest
             'paid_by' => 'nullable|exists:users,id',
             'payment_number' => 'sometimes|required|string|max:255|unique:payments,payment_number,' . $id,
             'payment_date' => 'sometimes|date',
-            'amount' => 'sometimes|numeric|min:0',
+            'amount' => 'sometimes|numeric|min:0.01',
             'payment_method' => 'sometimes|string|in:cash,bank_transfer,cheque',
             'reference_number' => 'nullable|string|max:255',
             'status' => 'sometimes|string|in:pending,completed,cancelled',

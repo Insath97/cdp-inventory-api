@@ -22,7 +22,7 @@ return new class extends Migration
             $table->date('damage_date');
             $table->decimal('quantity', 10, 2)->default(0);
             $table->string('reason');
-            $table->enum('status', ['reported', 'approved', 'written_off'])->default('reported');
+            $table->enum('status', ['reported', 'approved', 'cancelled'])->default('reported');
             $table->boolean('is_active')->default(true);
             $table->timestamps();
 

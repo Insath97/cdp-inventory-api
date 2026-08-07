@@ -41,7 +41,7 @@ class PurchaseOrderController extends Controller implements HasMiddleware
         try{
             $perPage = $request->get('per_page', 15);
 
-            $query = PurchaseOrder::query()->with(['branch', 'supplier', 'creator', 'approver', 'items.variant.product']);
+            $query = PurchaseOrder::query()->with(['supplier', 'creator', 'approver', 'items.variant.product']);
 
             $user = Auth::user();
 
@@ -63,9 +63,6 @@ class PurchaseOrderController extends Controller implements HasMiddleware
                 });
             }
 
-            if ($request->has('branch_id')) {
-                $query->where('branch_id', $request->branch_id);
-            }
 
             if ($request->has('created_by')) {
                 $query->where('created_by', $request->created_by);
@@ -78,11 +75,8 @@ class PurchaseOrderController extends Controller implements HasMiddleware
             $statusCountsQuery = DB::table('purchase_orders');
             if (!empty($subordinateIds)) {
                 if ($isAdminOrReportingManager) {
-                    $statusCountsQuery->where(function ($sq) use ($subordinateIds, $user) {
+                    $statusCountsQuery->where(function ($sq) use ($subordinateIds) {
                         $sq->whereIn('created_by', $subordinateIds);
-                        if ($user && $user->branch_id) {
-                            $sq->orWhere('branch_id', $user->branch_id);
-                        }
                     });
                 } else {
                     $statusCountsQuery->where('created_by', $user->id);
@@ -150,7 +144,7 @@ class PurchaseOrderController extends Controller implements HasMiddleware
             }
 
             DB::commit();
-            $purchaseOrder->load(['branch', 'supplier', 'creator', 'approver', 'items.variant.product']);
+            $purchaseOrder->load(['supplier', 'creator', 'approver', 'items.variant.product']);
 
             $this->logActivity('CREATE', 'PurchaseOrder', "Created purchase order: {$purchaseOrder->id}");
 
@@ -227,7 +221,7 @@ class PurchaseOrderController extends Controller implements HasMiddleware
     public function show(string $id)
     {
         try {
-            $purchaseOrder = PurchaseOrder::with(['branch', 'supplier', 'creator', 'approver', 'items.variant.product'])->find($id);
+            $purchaseOrder = PurchaseOrder::with(['supplier', 'creator', 'approver', 'items.variant.product'])->find($id);
 
             if (!$purchaseOrder) {
                 return response()->json([
@@ -331,7 +325,7 @@ class PurchaseOrderController extends Controller implements HasMiddleware
 
             DB::commit();
 
-            $purchaseOrder->refresh()->load(['branch', 'supplier', 'creator', 'approver', 'items.variant.product']);
+            $purchaseOrder->refresh()->load(['supplier', 'creator', 'approver', 'items.variant.product']);
 
             // Send notification to PO creator if PO status changed to approved
             if (isset($data['status']) && $data['status'] === 'approved' && $oldStatus !== 'approved') {
@@ -360,7 +354,7 @@ class PurchaseOrderController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Purchase order updated successfully',
-                'data' => $purchaseOrder->load(['branch', 'supplier', 'creator', 'approver', 'items.variant.product'])
+                'data' => $purchaseOrder->load(['supplier', 'creator', 'approver', 'items.variant.product'])
             ]);
         } catch (\Throwable $th) {
             DB::rollBack();

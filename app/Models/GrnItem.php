@@ -63,4 +63,9 @@ class GrnItem extends Model
     {
         return $this->belongsTo(Container::class);
     }
+
+    public function serials()
+    {
+        return $this->hasMany(GrnItemSerial::class);
+    }
 }

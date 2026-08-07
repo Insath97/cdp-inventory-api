@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\CreateStockLedgerRequest;
 use App\Http\Requests\UpdateStockLedgerRequest;
 use App\Models\StockLedger;
+use App\Services\StockLedgerService;
 use App\Traits\ActivityLogTrait;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\Middleware;
@@ -20,7 +21,7 @@ class StockLedgerController extends Controller
     public static function middleware(): array
     {
         return [
-            new Middleware('permission:StockLedger Index|StockTake Index|CheckIn Index|CheckOut Index|Grn Index', only: ['index', 'show']),
+            new Middleware('permission:StockLedger Index|StockTake Index|CheckIn Index|CheckOut Index|Grn Index|ProductAssignment Index|ProductReturn Index', only: ['index', 'show', 'balance']),
             new Middleware('permission:StockLedger Create|StockTake Create|CheckIn Create|CheckOut Create|Grn Create', only: ['store']),
             new Middleware('permission:StockLedger Update|StockTake Update|CheckIn Update|CheckOut Update|Grn Update', only: ['update']),
             new Middleware('permission:StockLedger Delete|StockTake Delete|CheckIn Delete|CheckOut Delete|Grn Delete', only: ['destroy']),
@@ -187,7 +188,118 @@ class StockLedgerController extends Controller
     }
 
     /**
+     * Current running stock balance for a product, optionally scoped to a
+     * branch — wraps StockLedgerService::getBalance() for frontend
+     * available-quantity checks (Check-In, Check-Out, Product Assignment,
+     * Staff Return).
+     */
+    public function balance(Request $request)
+    {
+        $request->validate([
+            'product_id' => 'required|integer|exists:products,id',
+            'branch_id'  => 'nullable|integer|exists:branches,id',
+        ]);
+
+        $balance = StockLedgerService::getBalance(
+            $request->integer('product_id'),
+            $request->filled('branch_id') ? $request->integer('branch_id') : null
+        );
+
+        return response()->json([
+            'status'  => 'success',
+            'message' => 'Stock balance fetched successfully',
+            'data'    => ['balance' => $balance],
+        ]);
+    }
+
+    /**
+     * Branch-wise stock quantities table.
+     * Returns per-product, per-branch totals of CheckIn (quantity_in) and
+     * CheckOut (quantity_out) so the frontend "Stocks" table can display
+     * branch-wise quantities that reflect every Check-In and Check-Out.
+     *
+     * Query params (all optional):
+     *   product_id   – filter to a single product
+     *   branch_id    – filter to a single branch
+     *   per_page     – paginate results (default 15, pass 0 for all)
+     */
+    public function branchStock(Request $request)
+    {
+        try {
+            $request->validate([
+                'product_id' => 'nullable|integer|exists:products,id',
+                'branch_id'  => 'nullable|integer|exists:branches,id',
+                'per_page'   => 'nullable|integer|min:0|max:500',
+            ]);
+
+            $checkInType  = \App\Models\CheckIn::class;
+            $checkOutType = \App\Models\CheckOut::class;
+
+            // Aggregate CheckIn (quantity_in) and CheckOut (quantity_out) per product+branch
+            $query = DB::table('stock_ledger as sl')
+                ->join('products as p', 'sl.product_id', '=', 'p.id')
+                ->join('branches as b', 'sl.branch_id', '=', 'b.id')
+                ->leftJoin('product_variants as pv', 'sl.product_variant_id', '=', 'pv.id')
+                ->whereIn('sl.reference_type', [$checkInType, $checkOutType])
+                ->select(
+                    'sl.product_id',
+                    'p.product_name',
+                    'p.product_code',
+                    'sl.product_variant_id',
+                    'pv.variant_name',
+                    'sl.branch_id',
+                    'b.branch_name',
+                    DB::raw('SUM(CASE WHEN sl.reference_type = \'' . $checkInType . '\' THEN COALESCE(sl.quantity_in, 0) ELSE 0 END) AS total_check_in'),
+                    DB::raw('SUM(CASE WHEN sl.reference_type = \'' . $checkOutType . '\' THEN COALESCE(sl.quantity_out, 0) ELSE 0 END) AS total_check_out'),
+                    DB::raw('SUM(COALESCE(sl.quantity_in, 0)) - SUM(COALESCE(sl.quantity_out, 0)) AS net_balance')
+                )
+                ->groupBy(
+                    'sl.product_id', 'p.product_name', 'p.product_code',
+                    'sl.product_variant_id', 'pv.variant_name',
+                    'sl.branch_id', 'b.branch_name'
+                )
+                ->orderBy('p.product_name')
+                ->orderBy('b.branch_name');
+
+            if ($request->filled('product_id')) {
+                $query->where('sl.product_id', $request->integer('product_id'));
+            }
+
+            if ($request->filled('branch_id')) {
+                $query->where('sl.branch_id', $request->integer('branch_id'));
+            }
+
+            $perPage = (int) $request->get('per_page', 15);
+
+            if ($perPage === 0) {
+                $results = $query->get();
+                return response()->json([
+                    'status'  => 'success',
+                    'message' => 'Branch-wise stock quantities fetched successfully',
+                    'data'    => $results,
+                ]);
+            }
+
+            $results = $query->paginate($perPage);
+
+            return response()->json([
+                'status'  => 'success',
+                'message' => 'Branch-wise stock quantities fetched successfully',
+                'data'    => $results,
+            ]);
+
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'Failed to fetch branch-wise stock quantities',
+                'error'   => config('app.debug') ? $th->getMessage() : 'Internal server error',
+            ], 500);
+        }
+    }
+
+    /**
      * Store a newly created resource in storage.
+
      */
     public function store(CreateStockLedgerRequest $request)
     {

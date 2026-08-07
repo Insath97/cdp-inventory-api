@@ -104,13 +104,10 @@ class MoneyLedgerController extends Controller
                 ]);
             });
 
-            $grnQuery = Grn::query()->with(['supplier', 'branch', 'items']);
+            $grnQuery = Grn::query()->with(['supplier', 'items']);
             if (!empty($subordinateIds)) {
-                $grnQuery->where(function($q) use ($subordinateIds, $branchIds) {
+                $grnQuery->where(function($q) use ($subordinateIds) {
                     $q->whereIn('received_by', $subordinateIds);
-                    if (!empty($branchIds)) {
-                        $q->orWhereIn('branch_id', $branchIds);
-                    }
                 });
             }
             $grnQuery->get()->each(function ($grn) use ($entries) {
@@ -124,7 +121,7 @@ class MoneyLedgerController extends Controller
                         ?? optional($grn->created_at)->format('Y-m-d'),
                     'reference' => $grn->grn_number,
                     'party' => optional($grn->supplier)->supplier_name ?? '—',
-                    'branch' => optional($grn->branch)->name ?? '—',
+                    // 'branch' removed — GRN no longer tied to a branch
                     'amount' => round($amount, 2),
                     'status' => $grn->status,
                     'description' => 'Goods received value',

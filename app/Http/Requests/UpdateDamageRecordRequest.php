@@ -33,7 +33,7 @@ class UpdateDamageRecordRequest extends FormRequest
             'damage_date' => 'sometimes|date',
             'quantity' => 'sometimes|numeric|min:0',
             'reason' => 'sometimes|string|max:1000',
-            'status' => 'sometimes|string|in:reported,approved,written_off',
+            'status' => 'sometimes|string|in:reported,approved,cancelled',
         ];
     }
 

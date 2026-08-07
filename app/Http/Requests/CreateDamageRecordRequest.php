@@ -31,7 +31,7 @@ class CreateDamageRecordRequest extends FormRequest
             'damage_date' => 'required|date',
             'quantity' => 'required|numeric|min:0',
             'reason' => 'required|string|max:1000',
-            'status' => 'required|string|in:reported,approved,written_off',
+            'status' => 'required|string|in:reported,approved,cancelled',
         ];
     }
 

@@ -23,7 +23,7 @@ class GrnReceivedMail extends Mailable
      */
     public function __construct(Grn $grn)
     {
-        $grn->load(['supplier', 'branch', 'receiver', 'items.product', 'items.productVariant']);
+        $grn->load(['supplier', 'receiver', 'items.product', 'items.productVariant']);
 
         $this->title = 'Goods Received Note Received';
         $this->description = "A Goods Received Note (GRN) has been marked as received and recorded into the stock ledger.";
@@ -31,7 +31,7 @@ class GrnReceivedMail extends Mailable
             'GRN Number' => $grn->grn_number,
             'Purchase Order Number' => $grn->purchaseOrder->po_number ?? '—',
             'Supplier' => $grn->supplier->supplier_name ?? '—',
-            'Branch' => $grn->branch->name ?? '—',
+            // 'Branch' removed — GRN no longer tied to a branch
             'Received Date' => $grn->received_date,
             'Received By' => $grn->receiver->name ?? 'System',
             'Status' => $grn->status,

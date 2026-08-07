@@ -15,7 +15,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('grn_id')->constrained('grns');
             $table->foreignId('supplier_id')->constrained('suppliers');
-            $table->foreignId('branch_id')->constrained('branches');
+            $table->foreignId('branch_id')->nullable()->constrained('branches');
             $table->foreignId('created_by')->constrained('users');
             $table->string('prn_number')->unique();
             $table->date('return_date');

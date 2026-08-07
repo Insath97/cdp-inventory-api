@@ -33,12 +33,12 @@ class StockLedgerService
     /**
      * @throws InsufficientStockException
      */
-    public static function assertSufficientStock(int $productId, ?int $branchId, float $requestedQty): void
+    public static function assertSufficientStock(int $productId, ?int $branchId, float $requestedQty, string $quantityLabel = 'Requested Quantity'): void
     {
         $available = self::getBalance($productId, $branchId);
 
         if ($requestedQty > $available) {
-            throw new InsufficientStockException($available, $requestedQty);
+            throw new InsufficientStockException($available, $requestedQty, $quantityLabel);
         }
     }
 

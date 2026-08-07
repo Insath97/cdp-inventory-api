@@ -27,7 +27,7 @@ class UpdateGrnRequest extends FormRequest
         return [
             'purchase_order_id' => 'nullable|exists:purchase_orders,id',
             'supplier_id' => 'required|exists:suppliers,id',
-            'branch_id' => 'nullable|exists:branches,id',
+            'branch_id' => 'required|exists:branches,id',
             'received_by' => 'required|exists:users,id',
             'grn_number' => 'required|string|max:255|unique:grns,grn_number,' . $id,
             'batch_number' => 'nullable|string|max:255',

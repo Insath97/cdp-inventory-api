@@ -215,7 +215,7 @@ class ProductController extends Controller implements HasMiddleware
     /**
      * Get detailed product lookup data including branch-wise stock balances and recent GRNs.
      */
-    public function lookupDetails(string $id)
+    public function lookupDetails(string $id, \Illuminate\Http\Request $request)
     {
         try {
             $product = Product::with([
@@ -244,12 +244,13 @@ class ProductController extends Controller implements HasMiddleware
             }
 
             // Calculate branch-wise stock balance from stock_ledger table
+            // Use LEFT JOIN so entries without a branch_id (e.g. from GRN) are still counted
             $branchStocks = DB::table('stock_ledger')
-                ->join('branches', 'stock_ledger.branch_id', '=', 'branches.id')
+                ->leftJoin('branches', 'stock_ledger.branch_id', '=', 'branches.id')
                 ->where('stock_ledger.product_id', $id)
                 ->select(
                     'branches.id as branch_id',
-                    'branches.name as branch_name',
+                    DB::raw("COALESCE(branches.name, 'No Branch') as branch_name"),
                     DB::raw('SUM(quantity_in) as total_in'),
                     DB::raw('SUM(quantity_out) as total_out'),
                     DB::raw('(SUM(quantity_in) - SUM(quantity_out)) as current_balance')
@@ -257,11 +258,43 @@ class ProductController extends Controller implements HasMiddleware
                 ->groupBy('branches.id', 'branches.name')
                 ->get();
 
-            // Total stock across all branches
+            // Total stock across all branches (including entries without branch)
             $totalStockInHand = $branchStocks->sum('current_balance');
 
+            // Per-variant stock balance — a product with multiple variants
+            // (e.g. Red / Blue) otherwise only ever shows one combined total,
+            // with no way to tell how much of each variant is actually on
+            // hand. Start from the product's own variant list (not just the
+            // ledger) so a variant with zero movement still shows as 0
+            // instead of being silently omitted.
+            $variantStockRows = DB::table('stock_ledger')
+                ->where('product_id', $id)
+                ->whereNotNull('product_variant_id')
+                ->select(
+                    'product_variant_id',
+                    DB::raw('SUM(quantity_in) as total_in'),
+                    DB::raw('SUM(quantity_out) as total_out'),
+                    DB::raw('(SUM(quantity_in) - SUM(quantity_out)) as current_balance')
+                )
+                ->groupBy('product_variant_id')
+                ->get()
+                ->keyBy('product_variant_id');
+
+            $variantStocks = $product->variants->map(function ($variant) use ($variantStockRows) {
+                $row = $variantStockRows->get($variant->id);
+                return [
+                    'variant_id' => $variant->id,
+                    'variant_name' => $variant->variant_name,
+                    'sku' => $variant->sku,
+                    'barcode' => $variant->barcode,
+                    'total_in' => $row ? floatval($row->total_in) : 0,
+                    'total_out' => $row ? floatval($row->total_out) : 0,
+                    'current_balance' => $row ? floatval($row->current_balance) : 0,
+                ];
+            });
+
             // Recent GRNs received for this product
-            $recentGrns = \App\Models\GrnItem::with(['grn.supplier', 'grn.branch'])
+            $recentGrns = \App\Models\GrnItem::with(['grn.supplier'])
                 ->where('product_id', $id)
                 ->latest('id')
                 ->take(5)
@@ -272,7 +305,7 @@ class ProductController extends Controller implements HasMiddleware
                         'grn_number' => $item->grn?->grn_number ?? 'N/A',
                         'batch_number' => $item->grn?->batch_number ?? 'N/A',
                         'supplier_name' => $item->grn?->supplier?->supplier_name ?? 'N/A',
-                        'branch_name' => $item->grn?->branch?->name ?? 'N/A',
+                        // 'branch_name' removed — GRN no longer tied to a branch
                         'quantity_received' => floatval($item->quantity_received ?? 0),
                         'unit_price' => floatval($item->unit_price ?? 0),
                         'received_date' => $item->grn?->received_date ? $item->grn->received_date->toDateString() : 'N/A',
@@ -312,6 +345,34 @@ class ProductController extends Controller implements HasMiddleware
                 ];
             });
 
+            // If the scanned QR encoded a per-unit serial number (see
+            // GrnsIndex.jsx sticker generators), resolve it to the exact
+            // physical unit's receiving record — this is what actually makes
+            // a scan unique, since product_id/variant_id alone is shared by
+            // every unit of that variant.
+            $scannedUnit = null;
+            if ($request->filled('serial')) {
+                $serialRecord = \App\Models\GrnItemSerial::where('product_id', $id)
+                    ->where('serial_number', $request->query('serial'))
+                    ->with('grnItem.grn')
+                    ->first();
+
+                if ($serialRecord) {
+                    $scannedUnit = [
+                        'serial_number' => $serialRecord->serial_number,
+                        'product_variant_id' => $serialRecord->product_variant_id,
+                        'grn_number' => $serialRecord->grnItem?->grn?->grn_number,
+                        'received_date' => $serialRecord->grnItem?->grn?->received_date?->toDateString(),
+                        'verified' => true,
+                    ];
+                } else {
+                    $scannedUnit = [
+                        'serial_number' => $request->query('serial'),
+                        'verified' => false,
+                    ];
+                }
+            }
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'Product lookup details retrieved successfully',
@@ -320,8 +381,10 @@ class ProductController extends Controller implements HasMiddleware
                     'last_grn_unit_price' => $resolvedPrice,
                     'total_stock_in_hand' => floatval($totalStockInHand),
                     'branch_stocks' => $branchStocks,
+                    'variant_stocks' => $variantStocks,
                     'recent_grns' => $recentGrns,
                     'price_history' => $priceHistory,
+                    'scanned_unit' => $scannedUnit,
                 ]
             ]);
         } catch (\Throwable $th) {
@@ -628,35 +691,4 @@ class ProductController extends Controller implements HasMiddleware
         }
     }
 
-    public function showPublicProduct(string $id)
-    {
-        try {
-            $product = Product::withoutGlobalScope('department')
-                ->where('is_active', true)
-                ->with([
-                    'brand', 'mainCategory', 'subCategory', 'measurement', 'unit', 'container', 'supplier', 'suppliers',
-                    'variants.brand', 'variants.mainCategory', 'variants.subCategory', 'variants.measurement', 'variants.unit', 'variants.container',
-                ])
-                ->find($id);
-
-            if (!$product) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Product not found',
-                ], 404);
-            }
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Product retrieved successfully',
-                'data' => $product,
-            ]);
-        } catch (\Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to retrieve product details',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
-            ], 500);
-        }
-    }
 }

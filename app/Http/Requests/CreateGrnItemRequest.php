@@ -33,6 +33,8 @@ class CreateGrnItemRequest extends FormRequest
             'unit_price' => 'required|numeric|min:0',
             'expiry_date' => 'nullable|date',
             'batch_number' => 'nullable|string|max:255',
+            'serial_numbers' => 'nullable|array',
+            'serial_numbers.*' => 'nullable|string|max:255',
         ];
     }
 

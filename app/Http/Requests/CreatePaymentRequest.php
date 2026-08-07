@@ -21,7 +21,7 @@ class CreatePaymentRequest extends FormRequest
             'paid_by' => 'nullable|exists:users,id',
             'payment_number' => 'required|string|max:255|unique:payments,payment_number',
             'payment_date' => 'required|date',
-            'amount' => 'required|numeric|min:0',
+            'amount' => 'required|numeric|min:0.01',
             'payment_method' => 'required|string|in:cash,bank_transfer,cheque',
             'reference_number' => 'nullable|string|max:255',
             'status' => 'required|string|in:pending,completed,cancelled',

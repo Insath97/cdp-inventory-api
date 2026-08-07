@@ -43,7 +43,7 @@ class GrnController extends Controller implements HasMiddleware
         try {
             $perPage = $request->get('per_page', 15);
 
-            $query = Grn::query()->with(['purchaseOrder', 'supplier', 'branch', 'receiver'])->withCount('items');
+            $query = Grn::query()->with(['purchaseOrder', 'supplier', 'receiver'])->withCount('items');
 
             $user = Auth::user();
             $subordinateIds = [];
@@ -76,11 +76,8 @@ class GrnController extends Controller implements HasMiddleware
                     ->push($user->id)
                     ->toArray();
 
-                    $query->where(function ($q) use ($subordinateIds, $user) {
+                    $query->where(function ($q) use ($subordinateIds) {
                         $q->whereIn('received_by', $subordinateIds);
-                        if ($user->branch_id) {
-                            $q->orWhere('branch_id', $user->branch_id);
-                        }
                     });
                 } else {
                     $query->where('received_by', $user->id);
@@ -99,9 +96,6 @@ class GrnController extends Controller implements HasMiddleware
                 $query->where('supplier_id', $request->supplier_id);
             }
 
-            if ($request->filled('branch_id')) {
-                $query->where('branch_id', $request->branch_id);
-            }
 
             if ($request->filled('received_by')) {
                 $query->where('received_by', $request->received_by);
@@ -190,7 +184,7 @@ class GrnController extends Controller implements HasMiddleware
             DB::commit();
 
             try {
-                $grn->load(['supplier', 'branch']);
+                $grn->load(['supplier']);
                 $creator = Auth::user() ?? \App\Models\User::find($grn->created_by);
 
                 $creatorName = $creator ? $creator->name : 'System User';
@@ -209,10 +203,7 @@ class GrnController extends Controller implements HasMiddleware
 
                 $grnPermissions = ['Grn Index', 'Grn Update', 'Grn View All'];
                 $recipientService = app(NotificationRecipientService::class);
-                $targets = $recipientService->usersByBranchPermissions($grn->branch, $grnPermissions);
-                if ($targets->isEmpty()) {
-                    $targets = $recipientService->usersByPermissions($grnPermissions);
-                }
+                $targets = $recipientService->usersByPermissions($grnPermissions);
 
                 $notifiedUserIds = [];
 
@@ -237,7 +228,7 @@ class GrnController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'GRN created successfully',
-                'data' => $grn->load(['purchaseOrder', 'supplier', 'branch', 'receiver']),
+                'data' => $grn->load(['purchaseOrder', 'supplier', 'receiver']),
             ], 201);
         } catch (\Throwable $th) {
             DB::rollBack();
@@ -256,7 +247,7 @@ class GrnController extends Controller implements HasMiddleware
     public function show(string $id)
     {
         try {
-            $grn = Grn::with(['purchaseOrder', 'supplier', 'branch', 'receiver', 'items.product', 'items.productVariant.product', 'items.unit', 'items.container'])->find($id);
+            $grn = Grn::with(['purchaseOrder', 'supplier', 'receiver', 'items.product', 'items.productVariant.product', 'items.unit', 'items.container'])->find($id);
 
             if (!$grn) {
                 return response()->json([
@@ -338,7 +329,7 @@ class GrnController extends Controller implements HasMiddleware
             return response()->json([
                 'status'  => 'success',
                 'message' => 'GRN updated successfully',
-                'data'    => $grn->load(['purchaseOrder', 'supplier', 'branch', 'receiver']),
+                'data'    => $grn->load(['purchaseOrder', 'supplier', 'receiver']),
             ]);
         } catch (\Throwable $th) {
             DB::rollBack();

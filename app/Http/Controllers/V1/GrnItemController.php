@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\CreateGrnItemRequest;
 use App\Http\Requests\UpdateGrnItemRequest;
 use App\Models\GrnItem;
+use App\Models\GrnItemSerial;
 use App\Models\Grn;
 use App\Models\Product;
 use App\Models\ExpiryRecord;
@@ -27,7 +28,7 @@ class GrnItemController extends Controller implements HasMiddleware
     {
         return [
             new Middleware('permission:GrnItem Index|Grn Index', only: ['index', 'show']),
-            new Middleware('permission:GrnItem Create|Grn Create', only: ['store']),
+            new Middleware('permission:GrnItem Create|Grn Create', only: ['store', 'nextSerial']),
             new Middleware('permission:GrnItem Update|Grn Update', only: ['update']),
             new Middleware('permission:GrnItem Delete|Grn Delete', only: ['destroy']),
         ];
@@ -41,7 +42,7 @@ class GrnItemController extends Controller implements HasMiddleware
         try {
             $perPage = $request->get('per_page', 15);
 
-            $query = GrnItem::with(['product', 'productVariant.product', 'unit', 'container']);
+            $query = GrnItem::with(['product', 'productVariant.product', 'unit', 'container', 'serials']);
 
              if ($request->has('search')) {
                 $query->search($request->search);
@@ -88,6 +89,59 @@ class GrnItemController extends Controller implements HasMiddleware
     }
 
     /**
+     * Next available serial number for a product/variant, derived from every
+     * numeric serial ever recorded against it (across all GRNs, not just the
+     * current one) — so a freshly generated batch never collides with a
+     * serial issued in an earlier receipt of the same product+variant.
+     */
+    public function nextSerial(Request $request)
+    {
+        try {
+            $request->validate([
+                'product_id' => 'required|integer|exists:products,id',
+                'product_variant_id' => 'nullable|integer|exists:product_variants,id',
+                'count' => 'nullable|integer|min:1|max:1000',
+            ]);
+
+            $query = GrnItemSerial::where('product_id', $request->integer('product_id'));
+            if ($request->filled('product_variant_id')) {
+                $query->where('product_variant_id', $request->integer('product_variant_id'));
+            } else {
+                $query->whereNull('product_variant_id');
+            }
+
+            $maxNumeric = $query->pluck('serial_number')
+                ->filter(fn ($s) => ctype_digit((string) $s))
+                ->map(fn ($s) => (int) $s)
+                ->max();
+
+            $next = $maxNumeric ? $maxNumeric + 1 : 1;
+            $count = $request->integer('count') ?: 1;
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Next serial number resolved successfully',
+                'data' => [
+                    'next_serial' => $next,
+                    'serials' => range($next, $next + $count - 1),
+                ],
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => $e->getMessage(),
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to resolve next serial number',
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
+            ], 500);
+        }
+    }
+
+    /**
      * Store a newly created resource in storage.
      */
     public function store(CreateGrnItemRequest $request)
@@ -110,7 +164,35 @@ class GrnItemController extends Controller implements HasMiddleware
                 $data['batch_number'] = $grn->batch_number;
             }
 
+            $serialNumbers = collect($data['serial_numbers'] ?? [])
+                ->map(fn ($s) => is_string($s) ? trim($s) : $s)
+                ->filter(fn ($s) => $s !== null && $s !== '')
+                ->values();
+            unset($data['serial_numbers']);
+
+            if ($serialNumbers->isNotEmpty() && !empty($data['product_variant_id'])) {
+                $existing = GrnItemSerial::where('product_variant_id', $data['product_variant_id'])
+                    ->whereIn('serial_number', $serialNumbers)
+                    ->pluck('serial_number');
+                if ($existing->isNotEmpty()) {
+                    DB::rollBack();
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Serial number(s) already recorded for this product: ' . $existing->implode(', '),
+                    ], 422);
+                }
+            }
+
             $grnItem = GrnItem::create($data);
+
+            foreach ($serialNumbers as $serialNumber) {
+                GrnItemSerial::create([
+                    'grn_item_id' => $grnItem->id,
+                    'product_id' => $grnItem->product_id,
+                    'product_variant_id' => $grnItem->product_variant_id,
+                    'serial_number' => $serialNumber,
+                ]);
+            }
 
             // Receiving this product from the GRN's supplier is what "using
             // a product under a supplier" means for direct-purchase GRNs
@@ -219,6 +301,7 @@ class GrnItemController extends Controller implements HasMiddleware
                     'productVariant',
                     'unit',
                     'container',
+                    'serials',
                 ]),
             ], 201);
         } catch (\Throwable $th) {
@@ -245,6 +328,7 @@ class GrnItemController extends Controller implements HasMiddleware
                 'productVariant',
                 'unit',
                 'container',
+                'serials',
             ])->find($id);
 
             if (! $grnItem) {
@@ -299,7 +383,44 @@ class GrnItemController extends Controller implements HasMiddleware
                 ], 422);
             }
 
+            $serialNumbersProvided = array_key_exists('serial_numbers', $data);
+            $serialNumbers = collect($data['serial_numbers'] ?? [])
+                ->map(fn ($s) => is_string($s) ? trim($s) : $s)
+                ->filter(fn ($s) => $s !== null && $s !== '')
+                ->values();
+            unset($data['serial_numbers']);
+
+            $resolvedVariantId = $data['product_variant_id'] ?? $grnItem->product_variant_id;
+            if ($serialNumbersProvided && $serialNumbers->isNotEmpty() && !empty($resolvedVariantId)) {
+                $existing = GrnItemSerial::where('product_variant_id', $resolvedVariantId)
+                    ->where('grn_item_id', '!=', $grnItem->id)
+                    ->whereIn('serial_number', $serialNumbers)
+                    ->pluck('serial_number');
+                if ($existing->isNotEmpty()) {
+                    DB::rollBack();
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Serial number(s) already recorded for this product: ' . $existing->implode(', '),
+                    ], 422);
+                }
+            }
+
             $grnItem->update($data);
+
+            // Full replace, same pattern as the variant-list sync elsewhere —
+            // simpler than diffing individual serial rows, and this list is
+            // small (one row per received unit on this single GRN item).
+            if ($serialNumbersProvided) {
+                $grnItem->serials()->delete();
+                foreach ($serialNumbers as $serialNumber) {
+                    GrnItemSerial::create([
+                        'grn_item_id' => $grnItem->id,
+                        'product_id' => $grnItem->product_id,
+                        'product_variant_id' => $grnItem->product_variant_id,
+                        'serial_number' => $serialNumber,
+                    ]);
+                }
+            }
 
             if ($grnItem->wasChanged('unit_price') && $grnItem->unit_price) {
                 $grn = $grnItem->grn;
@@ -382,6 +503,7 @@ class GrnItemController extends Controller implements HasMiddleware
                     'productVariant',
                     'unit',
                     'container',
+                    'serials',
                 ]),
             ]);
         } catch (\Throwable $th) {

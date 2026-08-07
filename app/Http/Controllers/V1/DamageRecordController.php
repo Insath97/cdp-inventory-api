@@ -85,20 +85,37 @@ class DamageRecordController extends Controller implements HasMiddleware
     public function store(CreateDamageRecordRequest $request)
     {
         try {
+            $status = $request->input('status', 'reported');
+
+            // Creating directly as Approved skips the normal reported ->
+            // approved transition, so it needs the same approval permission
+            // that transition would require via update().
+            if ($status === 'approved' && !Auth::user()?->can('Damage Record Approve')) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'You do not have permission to create a record as Approved.',
+                ], 403);
+            }
+
             DB::beginTransaction();
 
             $data = $request->validated();
-            // New damage records always start as "reported" with no approver —
-            // approving/writing off only happens later via update, by permitted users.
-            $data['status'] = 'reported';
-            $data['approved_by'] = null;
+            $data['status'] = $status;
+            $data['approved_by'] = $status === 'approved' ? Auth::id() : null;
             $record = DamagedRecord::create($data);
 
+            // Stock only moves once a record is Approved — whether that
+            // happens later via update() or, here, immediately on creation.
+            if ($status === 'approved') {
+                $this->applyStockDeduction($record);
+            }
+
             $recipientService = app(NotificationRecipientService::class);
+            $statusLabel = ['approved' => 'approved', 'cancelled' => 'cancelled'][$status] ?? 'reported';
             $notification = new \App\Notifications\InventoryAlertNotification([
-                'title' => 'Damage Reported',
-                'message' => 'Damage record ' . $record->damage_number . ' has been reported.',
-                'type' => 'damage_reported',
+                'title' => 'Damage Record ' . ucfirst($statusLabel),
+                'message' => 'Damage record ' . $record->damage_number . ' has been ' . $statusLabel . '.',
+                'type' => 'damage_' . $statusLabel,
                 'module' => 'damage-records',
                 'priority' => 'high',
                 'reference_id' => $record->id,
@@ -136,6 +153,12 @@ class DamageRecordController extends Controller implements HasMiddleware
                 'message' => 'Damage record created successfully',
                 'data' => $record->load(['product', 'productVariant', 'branch', 'reportedBy', 'approvedBy']),
             ], 201);
+        } catch (InsufficientStockException $e) {
+            DB::rollBack();
+            return response()->json([
+                'status' => 'error',
+                'message' => $e->getMessage(),
+            ], 422);
         } catch (\Throwable $th) {
             DB::rollBack();
             return response()->json([
@@ -201,16 +224,23 @@ class DamageRecordController extends Controller implements HasMiddleware
             $approvedByChanging = $request->has('approved_by')
                 && (string) $request->input('approved_by') !== (string) $record->approved_by;
 
-            $statusMovingToApproval = isset($validated['status'])
-                && $validated['status'] !== $record->status
-                && in_array($validated['status'], ['approved', 'written_off']);
+            $movingToApproved = isset($validated['status'])
+                && $validated['status'] === 'approved'
+                && $record->status !== 'approved';
 
-            $attemptsApproval = $approvedByChanging || $statusMovingToApproval;
+            // Leaving "approved" (e.g. approved -> cancelled, or an un-approve
+            // back to reported) reverses the stock deduction, so it needs the
+            // same approval permission as granting it.
+            $movingFromApproved = isset($validated['status'])
+                && $record->status === 'approved'
+                && $validated['status'] !== 'approved';
+
+            $attemptsApproval = $approvedByChanging || $movingToApproved || $movingFromApproved;
 
             if ($attemptsApproval && !Auth::user()?->can('Damage Record Approve')) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'You do not have permission to set an approver or move this record to Approved/Written Off.',
+                    'message' => 'You do not have permission to set an approver or change this record\'s Approved status.',
                 ], 403);
             }
 
@@ -219,14 +249,14 @@ class DamageRecordController extends Controller implements HasMiddleware
             $oldStatus = $record->status;
             $record->update($validated);
 
-            if ($oldStatus !== 'written_off' && $record->status === 'written_off') {
-                $this->applyWriteOff($record);
+            if ($movingToApproved) {
+                $this->applyStockDeduction($record);
 
                 $recipientService = app(NotificationRecipientService::class);
                 $notification = new \App\Notifications\InventoryAlertNotification([
-                    'title' => 'Damage Write-Off Approved',
-                    'message' => 'Damage record ' . $record->damage_number . ' has been written off.',
-                    'type' => 'damage_write_off',
+                    'title' => 'Damage Record Approved',
+                    'message' => 'Damage record ' . $record->damage_number . ' has been approved and stock has been adjusted.',
+                    'type' => 'damage_approved',
                     'module' => 'damage-records',
                     'priority' => 'high',
                     'reference_id' => $record->id,
@@ -249,6 +279,8 @@ class DamageRecordController extends Controller implements HasMiddleware
                         \Illuminate\Support\Facades\Mail::to($admin->email)->send(new \App\Mail\DamagedRecordMail($record));
                     }
                 }
+            } elseif ($movingFromApproved) {
+                $this->reverseStockDeduction($record);
             }
 
             DB::commit();
@@ -299,26 +331,7 @@ class DamageRecordController extends Controller implements HasMiddleware
 
             DB::beginTransaction();
 
-            $hasLedgerOut = StockLedger::where('reference_type', DamagedRecord::class)
-                ->where('reference_id', $record->id)
-                ->exists();
-
-            if ($hasLedgerOut) {
-                $qty = floatval($record->quantity ?? 0);
-                if ($qty > 0) {
-                    StockLedgerService::recordIn(
-                        productId:       $record->product_id,
-                        variantId:       $record->product_variant_id,
-                        branchId:        $record->branch_id,
-                        quantity:        $qty,
-                        unitId:          null,
-                        referenceType:   DamagedRecord::class . '_Reversal',
-                        referenceId:     $record->id,
-                        transactionDate: now()->toDateString(),
-                        createdBy:       Auth::id(),
-                    );
-                }
-            }
+            $this->reverseStockDeduction($record);
 
             if (! DamagedRecord::destroy($id)) {
                 DB::rollBack();
@@ -425,11 +438,22 @@ class DamageRecordController extends Controller implements HasMiddleware
         }
     }
 
-    private function applyWriteOff(DamagedRecord $record): void
+    /**
+     * Deduct the damaged quantity from stock once a record is approved.
+     */
+    private function applyStockDeduction(DamagedRecord $record): void
     {
         $record->refresh();
         $qty = floatval($record->quantity ?? 0);
         if ($qty <= 0) return;
+
+        // Idempotency guard against a record being re-approved (e.g. cancelled
+        // then approved again) while an un-reversed ledger entry still exists.
+        $alreadyPosted = StockLedger::where('reference_type', DamagedRecord::class)
+            ->where('reference_id', $record->id)
+            ->where('quantity_out', '>', 0)
+            ->exists();
+        if ($alreadyPosted) return;
 
         $createdBy = $record->approved_by ?? $record->reported_by ?? Auth::guard('api')->id();
 
@@ -447,6 +471,37 @@ class DamageRecordController extends Controller implements HasMiddleware
             createdBy:       $createdBy,
         );
 
-        $this->logActivity('CREATE', 'StockLedger', "Damage write-off ledger for damaged_record: {$record->id}");
+        $this->logActivity('CREATE', 'StockLedger', "Damage approval ledger for damaged_record: {$record->id}");
+    }
+
+    /**
+     * Reverse a previously-applied stock deduction (record cancelled/un-approved/deleted).
+     * No-op if the deduction was never posted.
+     */
+    private function reverseStockDeduction(DamagedRecord $record): void
+    {
+        $hasLedgerOut = StockLedger::where('reference_type', DamagedRecord::class)
+            ->where('reference_id', $record->id)
+            ->where('quantity_out', '>', 0)
+            ->exists();
+
+        if (! $hasLedgerOut) return;
+
+        $qty = floatval($record->quantity ?? 0);
+        if ($qty <= 0) return;
+
+        StockLedgerService::recordIn(
+            productId:       $record->product_id,
+            variantId:       $record->product_variant_id,
+            branchId:        $record->branch_id,
+            quantity:        $qty,
+            unitId:          null,
+            referenceType:   DamagedRecord::class . '_Reversal',
+            referenceId:     $record->id,
+            transactionDate: now()->toDateString(),
+            createdBy:       Auth::id(),
+        );
+
+        $this->logActivity('CREATE', 'StockLedger', "Damage reversal ledger for damaged_record: {$record->id}");
     }
 }

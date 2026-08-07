@@ -426,6 +426,20 @@ class CheckInController extends Controller implements HasMiddleware
         $qty = floatval($checkIn->quantity ?? 0);
         if ($qty <= 0) return;
 
+        // 1. Deduct from Global Stock (branch_id = null)
+        StockLedgerService::recordOut(
+            productId:       $checkIn->product_id,
+            variantId:       null,
+            branchId:        null,
+            quantity:        $qty,
+            unitId:          null,
+            referenceType:   CheckIn::class,
+            referenceId:     $checkIn->id,
+            transactionDate: $checkIn->date ? \Illuminate\Support\Carbon::parse($checkIn->date)->toDateString() : now()->toDateString(),
+            createdBy:       Auth::id(),
+        );
+
+        // 2. Add to Branch Stock
         StockLedgerService::recordIn(
             productId:       $checkIn->product_id,
             variantId:       null,
