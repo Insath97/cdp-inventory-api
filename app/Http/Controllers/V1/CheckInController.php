@@ -7,8 +7,6 @@ use App\Http\Requests\CreateCheckInRequest;
 use App\Http\Requests\UpdateCheckInRequest;
 use App\Models\CheckIn;
 use App\Models\Branch;
-use App\Models\StockLedger;
-use App\Services\StockLedgerService;
 use App\Services\NotificationRecipientService;
 use App\Traits\ActivityLogTrait;
 use Illuminate\Http\Request;
@@ -83,7 +81,6 @@ class CheckInController extends Controller implements HasMiddleware
             $checkIn = CheckIn::create($data);
 
             if ($checkIn->status === 'completed') {
-                $this->applyCheckInLedger($checkIn);
                 $branch = Branch::find($checkIn->branch_id);
 
                 $recipientService = app(NotificationRecipientService::class);
@@ -190,42 +187,35 @@ class CheckInController extends Controller implements HasMiddleware
 
           
             if ($previousStatus !== 'completed' && $checkIn->status === 'completed') {
-                $alreadyPosted = StockLedger::where('reference_type', CheckIn::class)
-                    ->where('reference_id', $checkIn->id)
-                    ->exists();
+                $branch = Branch::find($checkIn->branch_id);
 
-                if (!$alreadyPosted) {
-                    $this->applyCheckInLedger($checkIn);
-                    $branch = Branch::find($checkIn->branch_id);
+                $recipientService = app(NotificationRecipientService::class);
+                $notification = new \App\Notifications\InventoryAlertNotification([
+                    'title' => 'Checked In',
+                    'message' => ($checkIn->product?->product_name ?? 'Item') . ' checked in successfully.',
+                    'type' => 'checked_in',
+                    'module' => 'check-ins',
+                    'priority' => 'medium',
+                    'reference_id' => $checkIn->id,
+                    'reference_type' => CheckIn::class,
+                    'url' => '/check-ins/' . $checkIn->id,
+                ]);
 
-                    $recipientService = app(NotificationRecipientService::class);
-                    $notification = new \App\Notifications\InventoryAlertNotification([
-                        'title' => 'Checked In',
-                        'message' => ($checkIn->product?->product_name ?? 'Item') . ' checked in successfully.',
-                        'type' => 'checked_in',
-                        'module' => 'check-ins',
-                        'priority' => 'medium',
-                        'reference_id' => $checkIn->id,
-                        'reference_type' => CheckIn::class,
-                        'url' => '/check-ins/' . $checkIn->id,
-                    ]);
+                $targets = $recipientService->mergeCollections(
+                    Auth::user() ? collect([Auth::user()]) : collect(),
+                    $recipientService->branchAdmins($branch),
+                    $recipientService->supervisorsForBranch($branch),
+                    $recipientService->hrTeam()
+                );
 
-                    $targets = $recipientService->mergeCollections(
-                        Auth::user() ? collect([Auth::user()]) : collect(),
-                        $recipientService->branchAdmins($branch),
-                        $recipientService->supervisorsForBranch($branch),
-                        $recipientService->hrTeam()
-                    );
+                foreach ($targets as $user) {
+                    $user->notify($notification);
+                }
 
-                    foreach ($targets as $user) {
-                        $user->notify($notification);
-                    }
-
-                    $admins = $recipientService->adminsAndSuperAdmins($checkIn->branch_id);
-                    foreach ($admins as $admin) {
-                        if ($admin->email) {
-                            \Illuminate\Support\Facades\Mail::to($admin->email)->send(new \App\Mail\ManualInventoryActivityMail($checkIn, 'Check In'));
-                        }
+                $admins = $recipientService->adminsAndSuperAdmins($checkIn->branch_id);
+                foreach ($admins as $admin) {
+                    if ($admin->email) {
+                        \Illuminate\Support\Facades\Mail::to($admin->email)->send(new \App\Mail\ManualInventoryActivityMail($checkIn, 'Check In'));
                     }
                 }
             }
@@ -265,27 +255,6 @@ class CheckInController extends Controller implements HasMiddleware
             }
 
             DB::beginTransaction();
-
-            $hasLedgerIn = StockLedger::where('reference_type', CheckIn::class)
-                ->where('reference_id', $checkIn->id)
-                ->exists();
-
-            if ($hasLedgerIn) {
-                $qty = floatval($checkIn->quantity ?? 0);
-                if ($qty > 0) {
-                    StockLedgerService::recordOut(
-                        productId:       $checkIn->product_id,
-                        variantId:       null,
-                        branchId:        $checkIn->branch_id,
-                        quantity:        $qty,
-                        unitId:          null,
-                        referenceType:   CheckIn::class . '_Reversal',
-                        referenceId:     $checkIn->id,
-                        transactionDate: now()->toDateString(),
-                        createdBy:       Auth::id(),
-                    );
-                }
-            }
 
             $title = "CheckIn {$checkIn->id}";
             if (!CheckIn::destroy($id)) {
@@ -416,40 +385,5 @@ class CheckInController extends Controller implements HasMiddleware
                 'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
-    }
-    /**
-     * Write a stock ledger IN entry for a completed check-in.
-     * Uses the product's default unit_id (no variant since CheckIn tracks product-level).
-     */
-    private function applyCheckInLedger(CheckIn $checkIn): void
-    {
-        $qty = floatval($checkIn->quantity ?? 0);
-        if ($qty <= 0) return;
-
-        // 1. Deduct from Global Stock (branch_id = null)
-        StockLedgerService::recordOut(
-            productId:       $checkIn->product_id,
-            variantId:       null,
-            branchId:        null,
-            quantity:        $qty,
-            unitId:          null,
-            referenceType:   CheckIn::class,
-            referenceId:     $checkIn->id,
-            transactionDate: $checkIn->date ? \Illuminate\Support\Carbon::parse($checkIn->date)->toDateString() : now()->toDateString(),
-            createdBy:       Auth::id(),
-        );
-
-        // 2. Add to Branch Stock
-        StockLedgerService::recordIn(
-            productId:       $checkIn->product_id,
-            variantId:       null,
-            branchId:        $checkIn->branch_id,
-            quantity:        $qty,
-            unitId:          null,
-            referenceType:   CheckIn::class,
-            referenceId:     $checkIn->id,
-            transactionDate: $checkIn->date ? \Illuminate\Support\Carbon::parse($checkIn->date)->toDateString() : now()->toDateString(),
-            createdBy:       Auth::id(),
-        );
     }
 }

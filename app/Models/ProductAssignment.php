@@ -22,6 +22,7 @@ class ProductAssignment extends Model
         'product_id',
         'product_sku',
         'product_name',
+        'quantity',
         'issue_date',
         'remarks',
         'is_active',

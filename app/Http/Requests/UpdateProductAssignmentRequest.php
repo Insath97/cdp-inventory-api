@@ -24,11 +24,15 @@ class UpdateProductAssignmentRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'person_name' => 'nullable|string|max:255',
+            'person_name' => 'sometimes|required|string|max:255',
+            'group_name' => 'nullable|string|max:255',
+            'branch_name' => 'sometimes|required|string|max:255',
+            'department_name' => 'nullable|string|max:255',
             'product_id' => 'nullable|integer',
             'product_sku' => 'nullable|string|max:50',
             'product_name' => 'nullable|string|max:255',
-            'issue_date' => 'nullable|date',
+            'quantity' => 'sometimes|required|integer|min:1',
+            'issue_date' => 'sometimes|required|date',
             'remarks' => 'nullable|string|max:255',
             'is_active' => 'nullable|boolean',
         ];

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ProductReturn;
 use App\Http\Requests\CreateProductReturnRequest;
 use App\Http\Requests\UpdateProductReturnRequest;
+use App\Services\StockLedgerService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use App\Traits\ActivityLogTrait;
@@ -72,6 +73,15 @@ class ProductReturnController extends Controller implements HasMiddleware
                 } else {
                     $data['branch_name'] = 'Main Branch';
                 }
+            }
+
+            $insufficientError = $this->checkSufficientStock($data['products'], $data['branch_id']);
+            if ($insufficientError) {
+                DB::rollBack();
+                return response()->json([
+                    'status' => 'error',
+                    'message' => $insufficientError,
+                ], 422);
             }
 
             // Auto-fill unique return_code (include soft-deleted records to prevent 1062 duplicate entry)
@@ -154,6 +164,18 @@ class ProductReturnController extends Controller implements HasMiddleware
             }
 
             $data = $request->validated();
+
+            if (array_key_exists('products', $data)) {
+                $branchId = $data['branch_id'] ?? \App\Models\Branch::where('name', $productReturn->branch_name)->value('id');
+                $insufficientError = $this->checkSufficientStock($data['products'], $branchId);
+                if ($insufficientError) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => $insufficientError,
+                    ], 422);
+                }
+            }
+
             $productReturn->update($data);
 
             $this->logActivity('UPDATE', 'Product Return', "Updated product return: {$productReturn->return_code}");
@@ -209,5 +231,30 @@ class ProductReturnController extends Controller implements HasMiddleware
                 'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
+    }
+
+    /**
+     * Validate each return line's quantity against the branch's current
+     * stock balance. Returns an error message for the first line that
+     * exceeds it, or null if every line is within range.
+     */
+    private function checkSufficientStock(array $products, ?int $branchId): ?string
+    {
+        foreach ($products as $item) {
+            $productId = $item['product_id'] ?? null;
+            $quantity = floatval($item['quantity'] ?? 0);
+
+            if (!$productId || $quantity <= 0) {
+                continue;
+            }
+
+            $available = StockLedgerService::getBalance((int) $productId, $branchId);
+
+            if ($quantity > $available) {
+                return "Insufficient stock. Only {$available} units are available in this branch.";
+            }
+        }
+
+        return null;
     }
 }

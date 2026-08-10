@@ -29,6 +29,7 @@ class CreateProductAssignmentRequest extends FormRequest
             'product_variant_id' => 'nullable|exists:products,id',
             'product_sku' => 'nullable|string',
             'product_name' => 'nullable|string',
+            'quantity' => 'required|integer|min:1',
             'issue_date' => 'required|date',
             'remarks' => 'nullable|string',
         ];

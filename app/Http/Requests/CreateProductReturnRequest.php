@@ -42,7 +42,7 @@ class CreateProductReturnRequest extends FormRequest
             'person_name' => 'required|string|max:255',
             'group_name' => 'nullable|string|max:255',
             'branch_name' => 'nullable|string|max:255',
-            'branch_id' => 'nullable',
+            'branch_id' => 'required|integer|exists:branches,id',
             'department_name' => 'nullable|string|max:255',
             'products' => 'required|array',
             'products.*.product_id' => 'nullable',

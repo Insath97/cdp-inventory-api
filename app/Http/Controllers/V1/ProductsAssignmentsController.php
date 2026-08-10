@@ -5,9 +5,11 @@ namespace App\Http\Controllers\V1;
 use App\Http\Controllers\Controller;
 use App\Models\ProductAssignment;
 use App\Models\Product;
+use App\Models\Branch;
 use App\Http\Requests\CreateProductAssignmentRequest;
 use App\Http\Requests\UpdateProductAssignmentRequest;
 use App\Services\NotificationRecipientService;
+use App\Services\StockLedgerService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
@@ -143,6 +145,16 @@ class ProductsAssignmentsController extends Controller implements HasMiddleware
             $data['product_variant_id'] = $productId;
             unset($data['product_id']);
 
+            $branchId = Branch::where('name', $data['branch_name'])->value('id');
+            $insufficientError = $this->checkAssignmentStock($productId, $branchId, $data['quantity']);
+            if ($insufficientError) {
+                DB::rollBack();
+                return response()->json([
+                    'status' => 'error',
+                    'message' => $insufficientError,
+                ], 422);
+            }
+
             // Auto-fill SKU and Name if not provided
             if (empty($data['product_sku']) || empty($data['product_name'])) {
                 $product = Product::find($productId);
@@ -251,6 +263,26 @@ class ProductsAssignmentsController extends Controller implements HasMiddleware
             }
 
             $data = $request->validated();
+
+            if (array_key_exists('product_id', $data)) {
+                $data['product_variant_id'] = $data['product_id'];
+                unset($data['product_id']);
+            }
+
+            if (array_key_exists('quantity', $data) || array_key_exists('product_variant_id', $data) || array_key_exists('branch_name', $data)) {
+                $productId = $data['product_variant_id'] ?? $productassignment->product_variant_id;
+                $branchName = $data['branch_name'] ?? $productassignment->branch_name;
+                $quantity = $data['quantity'] ?? $productassignment->quantity;
+                $branchId = Branch::where('name', $branchName)->value('id');
+
+                $insufficientError = $this->checkAssignmentStock($productId, $branchId, $quantity);
+                if ($insufficientError) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => $insufficientError,
+                    ], 422);
+                }
+            }
 
             $productassignment->update($data);
 
@@ -429,5 +461,26 @@ class ProductsAssignmentsController extends Controller implements HasMiddleware
                 'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
             ], 500);
         }
+    }
+
+    /**
+     * Validate the assigned quantity against the branch's current stock
+     * balance. Returns an error message if it exceeds, or null if within range.
+     */
+    private function checkAssignmentStock(?int $productId, ?int $branchId, $quantity): ?string
+    {
+        $quantity = floatval($quantity ?? 0);
+
+        if (!$productId || !$branchId || $quantity <= 0) {
+            return null;
+        }
+
+        $available = StockLedgerService::getBalance($productId, $branchId);
+
+        if ($quantity > $available) {
+            return "Insufficient stock. Only {$available} units are available in this branch.";
+        }
+
+        return null;
     }
 }

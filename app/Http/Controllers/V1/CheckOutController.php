@@ -6,10 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\CreateCheckOutRequest;
 use App\Http\Requests\UpdateCheckOutRequest;
 use App\Models\CheckOut;
-use App\Models\StockLedger;
-use App\Services\StockLedgerService;
 use App\Services\NotificationRecipientService;
-use App\Exceptions\InsufficientStockException;
 use App\Traits\ActivityLogTrait;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -84,29 +81,7 @@ class CheckOutController extends Controller implements HasMiddleware
                 $data['status'] = 'completed';
             }
 
-            // Oversell prevention: check available stock balance before allowing checkout
-            $requestedQty = floatval($data['quantity'] ?? 0);
-            if ($requestedQty > 0 && $data['status'] === 'completed') {
-                StockLedgerService::assertSufficientStock($data['product_id'], $data['branch_id'], $requestedQty);
-            }
-
             $checkOut = CheckOut::create($data);
-
-            // Record stock OUT if status is completed
-            $qty = floatval($checkOut->quantity ?? 0);
-            if ($checkOut->status === 'completed' && $qty > 0) {
-                StockLedgerService::recordOut(
-                    productId:       $checkOut->product_id,
-                    variantId:       null,
-                    branchId:        $checkOut->branch_id,
-                    quantity:        $qty,
-                    unitId:          null,
-                    referenceType:   CheckOut::class,
-                    referenceId:     $checkOut->id,
-                    transactionDate: now()->toDateString(),
-                    createdBy:       Auth::id(),
-                );
-            }
 
             $recipientService = app(NotificationRecipientService::class);
             $notification = new \App\Notifications\InventoryAlertNotification([
@@ -152,12 +127,6 @@ class CheckOutController extends Controller implements HasMiddleware
                 'message' => 'CheckOut created successfully',
                 'data' => $checkOut,
             ], 201);
-        } catch (InsufficientStockException $e) {
-            DB::rollBack();
-            return response()->json([
-                'status' => 'error',
-                'message' => $e->getMessage(),
-            ], 422);
         } catch (\Throwable $th) {
             DB::rollBack();
             return response()->json([
@@ -212,54 +181,8 @@ class CheckOutController extends Controller implements HasMiddleware
             }
             DB::beginTransaction();
 
-            $oldQty = floatval($checkOut->quantity ?? 0);
-            $oldProductId = $checkOut->product_id;
-            $oldBranchId = $checkOut->branch_id;
-
             $data = $request->validated();
             $checkOut->update($data);
-
-            $newQty = floatval($checkOut->quantity ?? 0);
-            $newProductId = $checkOut->product_id;
-            $newBranchId = $checkOut->branch_id;
-
-            // If quantity, product, or branch changed, reverse old OUT and re-post new OUT
-            $hasExistingLedger = StockLedger::where('reference_type', CheckOut::class)
-                ->where('reference_id', $checkOut->id)
-                ->exists();
-
-            if ($hasExistingLedger && ($oldQty != $newQty || $oldProductId != $newProductId || $oldBranchId != $newBranchId)) {
-                // Reverse old stock OUT
-                if ($oldQty > 0) {
-                    StockLedgerService::recordIn(
-                        productId:       $oldProductId,
-                        variantId:       null,
-                        branchId:        $oldBranchId,
-                        quantity:        $oldQty,
-                        unitId:          null,
-                        referenceType:   CheckOut::class . '_Reversal',
-                        referenceId:     $checkOut->id,
-                        transactionDate: now()->toDateString(),
-                        createdBy:       Auth::id(),
-                    );
-                }
-
-                // Re-post new stock OUT
-                if ($newQty > 0) {
-                    StockLedgerService::assertSufficientStock($newProductId, $newBranchId, $newQty);
-                    StockLedgerService::recordOut(
-                        productId:       $newProductId,
-                        variantId:       null,
-                        branchId:        $newBranchId,
-                        quantity:        $newQty,
-                        unitId:          null,
-                        referenceType:   CheckOut::class,
-                        referenceId:     $checkOut->id,
-                        transactionDate: now()->toDateString(),
-                        createdBy:       Auth::id(),
-                    );
-                }
-            }
 
             DB::commit();
 
@@ -270,12 +193,6 @@ class CheckOutController extends Controller implements HasMiddleware
                 'message' => 'CheckOut updated successfully',
                 'data' => $checkOut,
             ]);
-        } catch (InsufficientStockException $e) {
-            DB::rollBack();
-            return response()->json([
-                'status' => 'error',
-                'message' => $e->getMessage(),
-            ], 422);
         } catch (\Throwable $th) {
             DB::rollBack();
             return response()->json([
@@ -302,28 +219,6 @@ class CheckOutController extends Controller implements HasMiddleware
             }
 
             DB::beginTransaction();
-
-            // If stock OUT was posted for this check-out, post a compensating stock IN
-            $hasLedgerOut = StockLedger::where('reference_type', CheckOut::class)
-                ->where('reference_id', $checkOut->id)
-                ->exists();
-
-            if ($hasLedgerOut) {
-                $qty = floatval($checkOut->quantity ?? 0);
-                if ($qty > 0) {
-                    StockLedgerService::recordIn(
-                        productId:       $checkOut->product_id,
-                        variantId:       null,
-                        branchId:        $checkOut->branch_id,
-                        quantity:        $qty,
-                        unitId:          null,
-                        referenceType:   CheckOut::class . '_Reversal',
-                        referenceId:     $checkOut->id,
-                        transactionDate: now()->toDateString(),
-                        createdBy:       Auth::id(),
-                    );
-                }
-            }
 
             $title = "CheckOut {$checkOut->id}";
             if (!CheckOut::destroy($id)) {

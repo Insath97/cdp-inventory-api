@@ -42,7 +42,7 @@ class UpdateProductReturnRequest extends FormRequest
             'person_name' => 'sometimes|required|string|max:255',
             'group_name' => 'nullable|string|max:255',
             'branch_name' => 'sometimes|nullable|string|max:255',
-            'branch_id' => 'nullable',
+            'branch_id' => 'sometimes|required|integer|exists:branches,id',
             'department_name' => 'nullable|string|max:255',
             'products' => 'sometimes|required|array',
             'products.*.product_id' => 'nullable',
