@@ -17,6 +17,18 @@ class UpdateSupplierRequest extends FormRequest
     }
 
     /**
+     * A bare domain or "www."-prefixed value has no scheme, which the `url`
+     * rule below requires — prepend https:// so "www.example.com" and
+     * "example.com" validate the same as "https://example.com".
+     */
+    protected function prepareForValidation(): void
+    {
+        if ($this->filled('website') && !preg_match('#^https?://#i', $this->website)) {
+            $this->merge(['website' => 'https://' . $this->website]);
+        }
+    }
+
+    /**
      * Get the validation rules that apply to the request.
      *
      * @return array<string, \Illuminate\Contracts\Validation\ValidationRule|array<mixed>|string>

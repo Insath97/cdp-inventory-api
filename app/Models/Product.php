@@ -24,14 +24,16 @@ class Product extends Model
         'is_default',
         'product_type',
         'created_by',
-        'is_pending_setup'
+        'is_pending_setup',
+        'track_serial_numbers'
     ];
 
     protected $casts = [
         'is_variant' => 'boolean',
         'is_active' => 'boolean',
         'is_default' => 'boolean',
-        'is_pending_setup' => 'boolean'
+        'is_pending_setup' => 'boolean',
+        'track_serial_numbers' => 'boolean'
     ];
 
     // Screens written before latest_purchase_price existed read

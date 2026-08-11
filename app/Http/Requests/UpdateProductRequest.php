@@ -55,6 +55,7 @@ class UpdateProductRequest extends FormRequest
             'is_active' => 'boolean',
             'is_default' => 'boolean',
             'is_pending_setup' => 'nullable|boolean',
+            'track_serial_numbers' => 'boolean',
         ];
 
         $rules['product_type'] = 'nullable|string|in:IT,Admin';

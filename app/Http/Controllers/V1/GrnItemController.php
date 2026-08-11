@@ -183,6 +183,17 @@ class GrnItemController extends Controller implements HasMiddleware
                 }
             }
 
+            if ($product && $product->track_serial_numbers) {
+                $expectedQty = (int) round(floatval($data['quantity_received'] ?? 0));
+                if ($serialNumbers->count() !== $expectedQty) {
+                    DB::rollBack();
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => "{$product->product_name} requires a serial number for every unit received. Expected {$expectedQty}, got {$serialNumbers->count()}.",
+                    ], 422);
+                }
+            }
+
             $grnItem = GrnItem::create($data);
 
             foreach ($serialNumbers as $serialNumber) {
@@ -401,6 +412,18 @@ class GrnItemController extends Controller implements HasMiddleware
                     return response()->json([
                         'status' => 'error',
                         'message' => 'Serial number(s) already recorded for this product: ' . $existing->implode(', '),
+                    ], 422);
+                }
+            }
+
+            if ($product && $product->track_serial_numbers) {
+                $expectedQty = (int) round(floatval($data['quantity_received'] ?? $grnItem->quantity_received ?? 0));
+                $currentSerialCount = $serialNumbersProvided ? $serialNumbers->count() : $grnItem->serials()->count();
+                if ($currentSerialCount !== $expectedQty) {
+                    DB::rollBack();
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => "{$product->product_name} requires a serial number for every unit received. Expected {$expectedQty}, got {$currentSerialCount}.",
                     ], 422);
                 }
             }

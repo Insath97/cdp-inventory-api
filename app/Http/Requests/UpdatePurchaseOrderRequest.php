@@ -34,9 +34,9 @@ class UpdatePurchaseOrderRequest extends FormRequest
         'po_number'=> 'required|string|unique:purchase_orders,po_number,'.$id,
         'order_date'=> 'required|date',
 
-        'expected_delivery_date'=>'filled|date|after_or_equal:order_date',
+        'expected_delivery_date'=>'nullable|date|after_or_equal:order_date',
         'actual_delivery_date'=>'nullable|date|after_or_equal:order_date',
-        'status'=> 'required|in:pending,approved,cancelled',
+        'status'=> 'required|in:draft,pending,approved,cancelled,received,completed',
         'subtotal'=> 'required|numeric|min:0',
         'tax_amount'=> 'required|numeric|min:0',
         'discount_amount'=> 'required|numeric|min:0',

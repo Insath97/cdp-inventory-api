@@ -32,6 +32,7 @@ return new class extends Migration
             $table->boolean('is_active')->default(true);
             $table->boolean('is_default')->default(false);
             $table->string('product_type')->nullable(); // values: 'IT', 'Admin'
+            $table->boolean('track_serial_numbers')->default(false);
             $table->decimal('latest_purchase_price', 12, 2)->nullable();
             $table->boolean('is_pending_setup')->default(false);
             $table->softDeletes();

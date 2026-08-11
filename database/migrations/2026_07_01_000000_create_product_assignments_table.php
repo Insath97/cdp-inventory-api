@@ -18,6 +18,7 @@ return new class extends Migration
             $table->string('group_name')->nullable();
             $table->string('branch_name');
             $table->string('department_name')->nullable();
+            $table->unsignedInteger('quantity')->default(1);
             $table->foreignId('product_variant_id')->constrained('products')->onDelete('cascade');
             $table->string('product_sku')->nullable();
             $table->string('product_name')->nullable();
