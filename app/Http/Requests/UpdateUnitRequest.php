@@ -24,9 +24,9 @@ class UpdateUnitRequest extends FormRequest
     
     protected function prepareForValidation()
     {
-        if ($this->has('name')) {
+        if ($this->has('unit_name')) {
             $this->merge([
-                'slug' => \Illuminate\Support\Str::slug($this->name),
+                'slug' => \Illuminate\Support\Str::slug($this->unit_name),
             ]);
         }
     }

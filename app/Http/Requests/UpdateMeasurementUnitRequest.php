@@ -33,10 +33,12 @@ class UpdateMeasurementUnitRequest extends FormRequest
 
     public function rules(): array
     {
+        $id = $this->route('measurement_unit');
+
         return [
             'name' => 'sometimes|string|max:255',
-            'slug' => 'sometimes|string|max:255|unique:measurement_units,id',
-            'short_code' => 'sometimes|string|max:50|unique:measurement_units,id',
+            'slug' => 'sometimes|string|max:255|unique:measurement_units,slug,' . $id,
+            'short_code' => 'sometimes|string|max:50|unique:measurement_units,short_code,' . $id,
             'type' => 'sometimes|string|max:255',
             'is_active' => 'boolean',
             'description' => 'nullable|string'
