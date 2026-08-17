@@ -52,12 +52,14 @@ class Product extends Model
             if (auth('api')->check()) {
                 $user = auth('api')->user();
                 if ($user && !$user->can('Product View All')) {
-                    // Note: reporting_manager_id points to the reporting_managers directory
-                    // table, not users.id, so it cannot be used here. parent_user_id is the
-                    // only field that actually models a User-to-User hierarchy.
+                    // Direct User hierarchy (parent_user_id) plus anyone who has this
+                    // user set as their "Reporting Manager" in the Add/Edit User form
+                    // (resolved through the reporting_managers directory).
                     $subordinateIds = User::where('parent_user_id', $user->id)
                         ->pluck('id')
+                        ->merge($user->getReportingSubordinateIds())
                         ->push($user->id)
+                        ->unique()
                         ->toArray();
 
                     $builder->where(function ($q) use ($subordinateIds) {
