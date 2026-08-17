@@ -52,8 +52,10 @@ class Product extends Model
             if (auth('api')->check()) {
                 $user = auth('api')->user();
                 if ($user && !$user->can('Product View All')) {
-                    $subordinateIds = User::where('reporting_manager_id', $user->id)
-                        ->orWhere('parent_user_id', $user->id)
+                    // Note: reporting_manager_id points to the reporting_managers directory
+                    // table, not users.id, so it cannot be used here. parent_user_id is the
+                    // only field that actually models a User-to-User hierarchy.
+                    $subordinateIds = User::where('parent_user_id', $user->id)
                         ->pluck('id')
                         ->push($user->id)
                         ->toArray();
