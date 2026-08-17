@@ -7,6 +7,7 @@ use App\Http\Requests\CreateUserRequest;
 use App\Http\Requests\UpdateUserRequest;
 use App\Mail\UserCreateMail;
 use App\Models\User;
+use App\Traits\ActivityLogTrait;
 use App\Traits\FileUploadTrait;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -21,6 +22,7 @@ use Illuminate\Routing\Controllers\Middleware;
 class UserController extends Controller implements HasMiddleware
 {
     use FileUploadTrait;
+    use ActivityLogTrait;
 
     public static function middleware(): array
     {
@@ -112,15 +114,18 @@ class UserController extends Controller implements HasMiddleware
             $rawPassword = $data['password'];
             $data['password'] = Hash::make($rawPassword);
 
-            // For admin users, ensure hierarchy fields are null/ignored if sent
+            // For admin users, ensure unrelated hierarchy identity fields are null/ignored if sent.
             if ($data['user_type'] === 'admin') {
                 $data['parent_user_id'] = null;
-                $data['branch_id'] = null;
                 $data['zone_id'] = null;
                 $data['region_id'] = null;
                 $data['province_id'] = null;
+            }
+
+            // Branch & Reporting Manager depend on the "Is Reporting Manager" toggle, not user_type
+            if (empty($data['is_reporting_manager'])) {
+                $data['branch_id'] = null;
                 $data['reporting_manager_id'] = null;
-                $data['is_reporting_manager'] = false;
             }
 
             // Handle Profile Image
@@ -210,6 +215,8 @@ class UserController extends Controller implements HasMiddleware
                 'created_user_id' => $user->id,
                 'user_type' => $user->user_type
             ]);
+
+            $this->logActivity('CREATE', 'User', "Created user: {$user->name} ({$user->email})");
 
             $userData = $user->toArray();
             if (isset($userData['roles'])) {
@@ -305,15 +312,18 @@ class UserController extends Controller implements HasMiddleware
                 }
             }
 
-            // Logic to clear hierarchy fields if switching to admin
+            // Logic to clear unrelated hierarchy identity fields if switching to admin.
             if (isset($data['user_type']) && $data['user_type'] === 'admin') {
                 $data['parent_user_id'] = null;
-                $data['branch_id'] = null;
                 $data['zone_id'] = null;
                 $data['region_id'] = null;
                 $data['province_id'] = null;
+            }
+
+            // Branch & Reporting Manager depend on the "Is Reporting Manager" toggle, not user_type
+            if (isset($data['is_reporting_manager']) && !$data['is_reporting_manager']) {
+                $data['branch_id'] = null;
                 $data['reporting_manager_id'] = null;
-                $data['is_reporting_manager'] = false;
             }
 
             // Handle Image Upload
@@ -351,6 +361,8 @@ class UserController extends Controller implements HasMiddleware
                 'updated_user_id' => $user->id,
                 'updated_fields' => array_keys($data)
             ]);
+
+            $this->logActivity('UPDATE', 'User', "Updated user: {$user->name} ({$user->email})");
 
             $userData = $user->toArray();
             if (isset($userData['roles'])) {
@@ -421,6 +433,9 @@ class UserController extends Controller implements HasMiddleware
                 }
             }
 
+            $userName = $user->name;
+            $userEmail = $user->email;
+
             $this->deleteFile($user->profile_image);
             $user->delete();
 
@@ -428,6 +443,8 @@ class UserController extends Controller implements HasMiddleware
                 'admin_id' => Auth::id(),
                 'deleted_user_id' => $id
             ]);
+
+            $this->logActivity('DELETE', 'User', "Deleted user: {$userName} ({$userEmail})");
 
             return response()->json([
                 'status' => 'success',
@@ -486,6 +503,9 @@ class UserController extends Controller implements HasMiddleware
                 'target_user_id' => $user->id,
                 'new_status' => $user->is_active
             ]);
+
+            $status = $user->is_active ? 'Activated' : 'Deactivated';
+            $this->logActivity('UPDATE', 'User', "{$status} user: {$user->name} ({$user->email})");
 
             return response()->json([
                 'status' => 'success',
