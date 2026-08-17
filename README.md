@@ -590,15 +590,4 @@ php artisan test --coverage
 
 ## License
 
-This is proprietary software owned by CDP Empire (Pvt) Ltd. All rights reserved. This repository and its contents may not be copied, modified, distributed, or used in any manner without prior written consent from CDP Empire (Pvt) Ltd.
-
----
-
-**CDP Empire (Pvt) Ltd**
-Ceylon Development Plantation Empire
-This is proprietary software owned by CDP Empire (Pvt) Ltd. All rights reserved. This repository and its contents may not be copied, modified, distributed, or used in any manner without prior written consent from CDP Empire (Pvt) Ltd.
-
----
-
-**CDP Empire (Pvt) Ltd**
-Ceylon Development Plantation Empire
+The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
