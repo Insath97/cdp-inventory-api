@@ -1,10 +1,12 @@
-# CDP Connect API
+# CDP Inventory API
+
+> **System Name:** Stockly
 
 > **Confidential** — This repository and its contents are proprietary to CDP Empire (Pvt) Ltd. Unauthorized access, copying, or distribution is strictly prohibited.
 
 ## Overview
 
-CDP Connect API is the backend REST API powering the CDP Empire inventory management platform. It handles the complete lifecycle of product inventory, procurement, stock movements, supplier management, branch-level stock control, damage/expiry tracking, and reporting for CDP Empire (Pvt) Ltd — a Sri Lankan business operations company.
+CDP Inventory API is the backend REST API powering the **Stockly** inventory management system by CDP Empire (Pvt) Ltd. It handles the complete lifecycle of product inventory, procurement, stock movements, supplier management, branch-level stock control, damage/expiry tracking, and reporting for CDP Empire (Pvt) Ltd — a Sri Lankan business operations company.
 
 ## Tech Stack
 
@@ -34,7 +36,7 @@ CDP Connect API is the backend REST API powering the CDP Empire inventory manage
 
 ```bash
 git clone <repo-url>
-cd cdp-connect-api
+cd cdp-inventory-api
 ```
 
 ### 2. Install PHP dependencies
@@ -588,6 +590,12 @@ php artisan test --coverage
 
 ## License
 
+This is proprietary software owned by CDP Empire (Pvt) Ltd. All rights reserved. This repository and its contents may not be copied, modified, distributed, or used in any manner without prior written consent from CDP Empire (Pvt) Ltd.
+
+---
+
+**CDP Empire (Pvt) Ltd**
+Ceylon Development Plantation Empire
 This is proprietary software owned by CDP Empire (Pvt) Ltd. All rights reserved. This repository and its contents may not be copied, modified, distributed, or used in any manner without prior written consent from CDP Empire (Pvt) Ltd.
 
 ---
