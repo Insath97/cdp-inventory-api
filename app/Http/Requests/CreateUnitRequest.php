@@ -26,16 +26,31 @@ class CreateUnitRequest extends FormRequest
     {
         if ($this->has('unit_name')) {
             $this->merge([
-                'slug' => \Illuminate\Support\Str::slug($this->unit_name),
+                'slug' => $this->generateSlug($this->unit_name),
             ]);
         }
+    }
+
+    /**
+     * Str::slug() strips non-Latin scripts (Tamil, Sinhala, ...) down to an
+     * empty string, so it can't be used alone here — fall back to a
+     * unicode-safe slug that keeps the original text's letters/numbers.
+     */
+    private function generateSlug(string $name): string
+    {
+        $slug = \Illuminate\Support\Str::slug($name);
+        if ($slug !== '') {
+            return $slug;
+        }
+
+        return trim(preg_replace('/[^\p{L}\p{N}]+/u', '-', mb_strtolower($name)), '-');
     }
 
     public function rules(): array
     {
         return [
             'unit_name' => 'required|string|max:255',
-            'slug' => 'required|string|max:255|unique:units,slug',
+            'slug' => 'nullable|string|max:255|unique:units,slug',
             'short_code' => 'required|string|max:50|unique:units,short_code',
             'is_base_unit' => 'boolean',
             'is_active' => 'boolean',
