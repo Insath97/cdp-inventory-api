@@ -24,11 +24,26 @@ class UpdateProductRequest extends FormRequest
     
     protected function prepareForValidation()
     {
-        if ($this->has('name')) {
+        if ($this->has('product_name')) {
             $this->merge([
-                'slug' => \Illuminate\Support\Str::slug($this->name),
+                'slug' => $this->generateSlug($this->product_name),
             ]);
         }
+    }
+
+    /**
+     * Str::slug() strips non-Latin scripts (Tamil, Sinhala, ...) down to an
+     * empty string, so it can't be used alone here — fall back to a
+     * unicode-safe slug that keeps the original text's letters/numbers.
+     */
+    private function generateSlug(string $name): string
+    {
+        $slug = \Illuminate\Support\Str::slug($name);
+        if ($slug !== '') {
+            return $slug;
+        }
+
+        return trim(preg_replace('/[^\p{L}\p{N}]+/u', '-', mb_strtolower($name)), '-');
     }
 
     public function rules(): array

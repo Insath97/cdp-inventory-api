@@ -213,6 +213,24 @@ class User extends Authenticatable implements JWTSubject, MustVerifyEmail
     }
 
     /**
+     * Get the IDs of users whose "Reporting Manager" (users.reporting_manager_id,
+     * a foreign key into the reporting_managers directory table) resolves back to
+     * this logged-in user. There is no direct FK from reporting_managers to users,
+     * so the link is made by matching email — the existing convention: a
+     * reporting_managers row and the User account it represents share an email.
+     */
+    public function getReportingSubordinateIds(): array
+    {
+        $managerEntry = ReportingManager::where('email', $this->email)->first();
+
+        if (!$managerEntry) {
+            return [];
+        }
+
+        return self::query()->where('reporting_manager_id', $managerEntry->id)->pluck('id')->toArray();
+    }
+
+    /**
      * Check if the user has verified their email
      */
     public function hasVerifiedEmail(): bool

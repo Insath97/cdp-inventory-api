@@ -26,17 +26,34 @@ class UpdateMeasurementUnitRequest extends FormRequest
     {
         if ($this->has('name')) {
             $this->merge([
-                'slug' => \Illuminate\Support\Str::slug($this->name),
+                'slug' => $this->generateSlug($this->name),
             ]);
         }
     }
 
+    /**
+     * Str::slug() strips non-Latin scripts (Tamil, Sinhala, ...) down to an
+     * empty string, so it can't be used alone here — fall back to a
+     * unicode-safe slug that keeps the original text's letters/numbers.
+     */
+    private function generateSlug(string $name): string
+    {
+        $slug = \Illuminate\Support\Str::slug($name);
+        if ($slug !== '') {
+            return $slug;
+        }
+
+        return trim(preg_replace('/[^\p{L}\p{N}]+/u', '-', mb_strtolower($name)), '-');
+    }
+
     public function rules(): array
     {
+        $id = $this->route('measurement_unit');
+
         return [
             'name' => 'sometimes|string|max:255',
-            'slug' => 'sometimes|string|max:255|unique:measurement_units,id',
-            'short_code' => 'sometimes|string|max:50|unique:measurement_units,id',
+            'slug' => 'nullable|string|max:255|unique:measurement_units,slug,' . $id,
+            'short_code' => 'sometimes|string|max:50|unique:measurement_units,short_code,' . $id,
             'type' => 'sometimes|string|max:255',
             'is_active' => 'boolean',
             'description' => 'nullable|string'
