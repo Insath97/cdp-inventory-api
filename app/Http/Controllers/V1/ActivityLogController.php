@@ -36,8 +36,7 @@ class ActivityLogController extends Controller implements HasMiddleware
 
             $user = Auth::user();
             if ($user && !$user->can('Activity Log View All')) {
-                $subordinateIds = User::where('reporting_manager_id', $user->id)
-                    ->orWhere('parent_user_id', $user->id)
+                $subordinateIds = User::where('parent_user_id', $user->id)
                     ->pluck('id')
                     ->push($user->id)
                     ->toArray();

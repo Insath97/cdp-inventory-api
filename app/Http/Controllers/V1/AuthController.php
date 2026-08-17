@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\V1;
 
 use App\Http\Controllers\Controller;
+use App\Traits\ActivityLogTrait;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Auth;
@@ -10,6 +11,8 @@ use Illuminate\Support\Facades\Cookie;
 
 class AuthController extends Controller
 {
+    use ActivityLogTrait;
+
       /**
      * Admin Login
      * Only users with user_type = 'admin' can login here
@@ -79,6 +82,8 @@ class AuthController extends Controller
 
             $user->updateLastLogin($request->ip());
 
+            $this->logActivity('LOGIN', 'Auth', "User logged in: {$user->name} ({$user->email})");
+
             $cookie = cookie(
                 'auth_token',
                 $token,
@@ -132,6 +137,13 @@ class AuthController extends Controller
     public function logout(Request $request)
     {
         try {
+            // Log before invalidating the token — logActivity() reads the
+            // authenticated user off this same guard.
+            $user = Auth::guard('api')->user();
+            if ($user) {
+                $this->logActivity('LOGOUT', 'Auth', "User logged out: {$user->name} ({$user->email})");
+            }
+
             // Logout the user (invalidates the token)
             Auth::guard('api')->logout();
 
