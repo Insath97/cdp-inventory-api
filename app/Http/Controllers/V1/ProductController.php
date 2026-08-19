@@ -151,10 +151,12 @@ class ProductController extends Controller implements HasMiddleware
             $data['is_active'] = $data['is_active'] ?? true;
             $data['is_default'] = $data['is_default'] ?? false;
 
+            $variants = $data['variants'] ?? [];
+            unset($data['variants']);
+
             $product = Product::create($data);
 
             // Create variants if any
-            $variants = $request->input('variants', []);
             if (!empty($variants) && is_array($variants)) {
                 foreach ($variants as $variantData) {
                     $variantData['product_id'] = $product->id;
@@ -176,6 +178,7 @@ class ProductController extends Controller implements HasMiddleware
             ], 201);
         } catch (\Throwable $th) {
             DB::rollBack();
+            Log::error('Failed to create product: ' . $th->getMessage(), ['exception' => $th]);
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to create product',
@@ -455,10 +458,13 @@ class ProductController extends Controller implements HasMiddleware
 
             $data['is_variant'] = true;
 
+            $variants = $data['variants'] ?? null;
+            unset($data['variants']);
+
             $product->update($data);
 
             if ($request->has('variants')) {
-                $variants = $request->input('variants', []);
+                $variants = $variants ?? [];
                 if (is_array($variants)) {
                     $keepIds = collect($variants)->pluck('id')->filter()->toArray();
                     $product->variants()->whereNotIn('id', $keepIds)->delete();
@@ -504,6 +510,7 @@ class ProductController extends Controller implements HasMiddleware
             ]);
         } catch (\Throwable $th) {
             DB::rollBack();
+            Log::error('Failed to update product: ' . $th->getMessage(), ['exception' => $th]);
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to update product',
