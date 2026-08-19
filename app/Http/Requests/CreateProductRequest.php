@@ -68,6 +68,26 @@ class CreateProductRequest extends FormRequest
             'is_default' => 'boolean',
             'is_pending_setup' => 'nullable|boolean',
             'track_serial_numbers' => 'boolean',
+
+            'variants' => 'nullable|array',
+            'variants.*.variant_name' => 'nullable|string|max:255',
+            'variants.*.supplier_id' => 'nullable|exists:suppliers,id',
+            'variants.*.sku' => 'required|string|max:255|distinct|unique:product_variants,sku',
+            'variants.*.code' => 'nullable|string|max:255',
+            'variants.*.barcode' => 'required|string|max:255|distinct|unique:product_variants,barcode',
+            'variants.*.color' => 'nullable|string|max:255',
+            'variants.*.size' => 'nullable|string|max:255',
+            'variants.*.material' => 'nullable|string|max:255',
+            'variants.*.style' => 'nullable|string|max:255',
+            'variants.*.description' => 'nullable|string',
+            'variants.*.is_default' => 'boolean',
+            'variants.*.is_active' => 'boolean',
+            'variants.*.brand_id' => 'nullable|exists:brands,id',
+            'variants.*.main_category_id' => 'nullable|exists:main_categories,id',
+            'variants.*.sub_category_id' => 'nullable|exists:sub_categories,id',
+            'variants.*.measurement_id' => 'nullable|exists:measurement_units,id',
+            'variants.*.unit_id' => 'nullable|exists:units,id',
+            'variants.*.container_id' => 'nullable|exists:containers,id',
         ];
 
         $rules['product_type'] = 'nullable|string|in:IT,Admin';
