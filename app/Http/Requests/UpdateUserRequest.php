@@ -37,6 +37,7 @@ class UpdateUserRequest extends FormRequest
 
             'parent_user_id' => 'nullable|exists:users,id',
             'reporting_manager_id' => 'nullable|exists:reporting_managers,id',
+            'reporting_manager_user_id' => 'nullable|exists:users,id',
 
             'branch_id' => 'nullable|exists:branches,id',
             'zone_id' => 'nullable|exists:zones,id',

@@ -37,6 +37,7 @@ class CreateUserRequest extends FormRequest
             // Hierarchy specific validation
             'parent_user_id' => 'nullable|exists:users,id',
             'reporting_manager_id' => 'nullable|exists:reporting_managers,id',
+            'reporting_manager_user_id' => 'nullable|exists:users,id',
 
             // Location fields (required based on business logic, but nullable in DB)
             'branch_id' => 'nullable|exists:branches,id',

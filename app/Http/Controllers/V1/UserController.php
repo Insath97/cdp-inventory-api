@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\CreateUserRequest;
 use App\Http\Requests\UpdateUserRequest;
 use App\Mail\UserCreateMail;
+use App\Models\ReportingManager;
 use App\Models\User;
 use App\Traits\ActivityLogTrait;
 use App\Traits\FileUploadTrait;
@@ -14,6 +15,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
@@ -104,11 +106,62 @@ class UserController extends Controller implements HasMiddleware
         }
     }
 
+    /**
+     * Resolve the "Reporting Manager" field, picked from the real users list on the
+     * frontend, into the reporting_managers.id the users.reporting_manager_id column
+     * still requires. Matches an existing reporting_managers row by email (the
+     * established convention, see User::getReportingSubordinateIds()); if none
+     * exists yet for the picked user, creates one so the picker always works
+     * regardless of whether that user was ever added via the Reporting Managers
+     * admin page.
+     */
+    private function resolveReportingManagerId(?int $selectedUserId): ?int
+    {
+        if (!$selectedUserId) {
+            return null;
+        }
+
+        $targetUser = User::find($selectedUserId);
+        if (!$targetUser) {
+            return null;
+        }
+
+        $managerEntry = ReportingManager::where('email', $targetUser->email)->first();
+        if ($managerEntry) {
+            return $managerEntry->id;
+        }
+
+        $username = $targetUser->username;
+        $suffix = 1;
+        while (ReportingManager::where('username', $username)->exists()) {
+            $username = $targetUser->username . '-' . $suffix++;
+        }
+
+        $managerEntry = ReportingManager::create([
+            'name' => $targetUser->name,
+            'username' => $username,
+            'email' => $targetUser->email,
+            'password' => Str::random(24),
+            'role' => $targetUser->getRoleNames()->first(),
+            'is_active' => $targetUser->is_active,
+            'can_login' => false,
+            'phone' => $targetUser->phone,
+            'is_default' => false,
+        ]);
+
+        return $managerEntry->id;
+    }
+
     public function store(CreateUserRequest $request)
     {
         try {
             $currentUser = auth("api")->user();
             $data = $request->validated();
+
+            if (array_key_exists('reporting_manager_user_id', $data)) {
+                $data['reporting_manager_id'] = $this->resolveReportingManagerId($data['reporting_manager_user_id']);
+                unset($data['reporting_manager_user_id']);
+            }
 
             // Hash password
             $rawPassword = $data['password'];
@@ -294,6 +347,11 @@ class UserController extends Controller implements HasMiddleware
             }
 
             $data = $request->validated();
+
+            if (array_key_exists('reporting_manager_user_id', $data)) {
+                $data['reporting_manager_id'] = $this->resolveReportingManagerId($data['reporting_manager_user_id']);
+                unset($data['reporting_manager_user_id']);
+            }
 
             if (isset($data['password'])) {
                 $data['password'] = Hash::make($data['password']);
