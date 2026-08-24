@@ -48,7 +48,8 @@ class UserController extends Controller implements HasMiddleware
                 $query->where(function (Builder $builder) use ($search) {
                     $builder->where('name', 'like', "%{$search}%")
                         ->orWhere('email', 'like', "%{$search}%")
-                        ->orWhere('username', 'like', "%{$search}%");
+                        ->orWhere('username', 'like', "%{$search}%")
+                        ->orWhere('user_code', 'like', "%{$search}%");
                 });
             }
 

@@ -135,6 +135,8 @@ Route::middleware(['auth:api', 'throttle:300,1'])->prefix('v1')->group(function 
 
     // Products
     Route::get('products/{id}/details', [ProductController::class, 'lookupDetails']);
+    Route::get('products/{id}/serials', [ProductController::class, 'serialsWithAssignments']);
+    Route::get('products/{id}/transfers', [ProductController::class, 'transfersForProduct']);
     Route::apiResource('products', ProductController::class);
     Route::patch('products/{id}/toggle-status', [ProductController::class, 'toggleStatus']);
     Route::patch('products/{id}/activate', [ProductController::class, 'activate']);
@@ -156,6 +158,8 @@ Route::middleware(['auth:api', 'throttle:300,1'])->prefix('v1')->group(function 
 
     // GRN Items
     Route::get('grn-items/next-serial', [\App\Http\Controllers\V1\GrnItemController::class, 'nextSerial']);
+    Route::get('grn-item-serials/search', [\App\Http\Controllers\V1\GrnItemController::class, 'searchAvailableSerials']);
+    Route::get('grn-item-serials/resolve', [\App\Http\Controllers\V1\GrnItemController::class, 'resolveSerial']);
     Route::apiResource('grn-items', \App\Http\Controllers\V1\GrnItemController::class);
     Route::patch('grn-items/{id}/activate', [\App\Http\Controllers\V1\GrnItemController::class, 'activate']);
     Route::patch('grn-items/{id}/deactivate', [\App\Http\Controllers\V1\GrnItemController::class, 'deactivate']);
@@ -242,6 +246,8 @@ Route::middleware(['auth:api', 'throttle:300,1'])->prefix('v1')->group(function 
     Route::patch('branch-requests/{id}/deactivate', [\App\Http\Controllers\V1\BranchRequestController::class, 'deactivate']);
 
     //Product Assignments
+    // Registered before the apiResource below so "active" isn't swallowed by the {product_assignment} show route.
+    Route::get('product-assignments/active', [\App\Http\Controllers\V1\ProductsAssignmentsController::class, 'activeForPerson']);
     Route::apiResource('product-assignments', \App\Http\Controllers\V1\ProductsAssignmentsController::class);
     Route::patch('product-assignments/{id}/toggle-status', [\App\Http\Controllers\V1\ProductsAssignmentsController::class, 'toggleStatus']);
     Route::patch('product-assignments/{id}/activate', [\App\Http\Controllers\V1\ProductsAssignmentsController::class, 'activate']);

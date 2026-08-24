@@ -126,6 +126,16 @@ class PurchaseOrderController extends Controller implements HasMiddleware
             $items = $data['items'] ?? [];
             unset($data['items']);
 
+            if (empty($data['po_number'])) {
+                $maxId = (PurchaseOrder::withTrashed()->max('id') ?? 0) + 1;
+                $poNumber = 'PO-' . date('Y') . '-' . str_pad($maxId, 4, '0', STR_PAD_LEFT);
+                while (PurchaseOrder::withTrashed()->where('po_number', $poNumber)->exists()) {
+                    $maxId++;
+                    $poNumber = 'PO-' . date('Y') . '-' . str_pad($maxId, 4, '0', STR_PAD_LEFT);
+                }
+                $data['po_number'] = $poNumber;
+            }
+
             $purchaseOrder = PurchaseOrder::create($data);
 
             if (!empty($items)) {

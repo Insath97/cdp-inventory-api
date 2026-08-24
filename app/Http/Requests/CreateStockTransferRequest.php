@@ -25,7 +25,7 @@ class CreateStockTransferRequest extends FormRequest
 
         return [
             'transfer_type'    => 'required|in:branch_to_branch',
-            'transfer_number'  => 'required|string|unique:stock_transfers,transfer_number',
+            'transfer_number'  => 'nullable|string|unique:stock_transfers,transfer_number',
             'transfer_date'    => 'required|date',
             'status'           => $statusRule,
             'notes'            => 'nullable|string',

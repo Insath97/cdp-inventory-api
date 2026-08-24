@@ -27,4 +27,9 @@ class GrnItemSerial extends Model
     {
         return $this->belongsTo(ProductVariant::class);
     }
+
+    public function assignments()
+    {
+        return $this->hasMany(ProductAssignment::class, 'grn_item_serial_id');
+    }
 }

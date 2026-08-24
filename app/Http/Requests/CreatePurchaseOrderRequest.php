@@ -28,7 +28,7 @@ class CreatePurchaseOrderRequest extends FormRequest
         'branch_id'=> 'required|exists:branches,id',
         'created_by'=> 'required|exists:users,id',
         'approved_by'=> 'nullable|exists:users,id',
-        'po_number'=> 'required|string|unique:purchase_orders',
+        'po_number'=> 'nullable|string|unique:purchase_orders',
         'order_date'=> 'required|date',
 
         'expected_delivery_date'=>'nullable|date|after_or_equal:order_date',

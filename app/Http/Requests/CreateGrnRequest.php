@@ -26,7 +26,7 @@ class CreateGrnRequest extends FormRequest
             'supplier_id' => 'required|exists:suppliers,id',
             'branch_id' => 'required|exists:branches,id',
             'received_by' => 'required|exists:users,id',
-            'grn_number' => 'required|string|max:255|unique:grns,grn_number',
+            'grn_number' => 'nullable|string|max:255|unique:grns,grn_number',
             'batch_number' => 'nullable|string|max:255',
             'received_date' => 'required|date',
             'notes' => 'nullable|string',
