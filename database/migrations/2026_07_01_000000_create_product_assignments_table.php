@@ -22,7 +22,6 @@ return new class extends Migration
             $table->string('department_name')->nullable();
             $table->unsignedInteger('quantity')->default(1);
             $table->foreignId('product_variant_id')->constrained('products')->onDelete('cascade');
-            $table->foreignId('grn_item_serial_id')->nullable()->constrained('grn_item_serials')->nullOnDelete();
             $table->string('serial_number')->nullable();
             $table->string('product_sku')->nullable();
             $table->string('product_name')->nullable();
@@ -34,7 +33,6 @@ return new class extends Migration
             $table->timestamps();
             $table->softDeletes();
 
-            $table->index(['grn_item_serial_id', 'is_active']);
             $table->index(['user_id', 'branch_id', 'is_active']);
         });
     }

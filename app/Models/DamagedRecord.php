@@ -9,6 +9,7 @@ class DamagedRecord extends Model
     protected $fillable = [
         'product_id',
         'product_variant_id',
+        'serial_number',
         'branch_id',
         'reported_by',
         'approved_by',
