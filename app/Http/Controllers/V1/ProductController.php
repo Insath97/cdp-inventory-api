@@ -28,7 +28,7 @@ class ProductController extends Controller implements HasMiddleware
     public static function middleware(): array
     {
         return [
-            new Middleware('permission:Product Index', only: ['index', 'show', 'lookupDetails']),
+            new Middleware('permission:Product Index', only: ['index', 'show', 'lookupDetails', 'serialsWithAssignments', 'transfersForProduct']),
             new Middleware('permission:Product Create', only: ['store']),
             new Middleware('permission:Product Update', only: ['update']),
             new Middleware('permission:Product Delete', only: ['destroy']),
@@ -363,12 +363,23 @@ class ProductController extends Controller implements HasMiddleware
                     ->first();
 
                 if ($serialRecord) {
+                    $activeAssignment = \App\Models\ProductAssignment::where('grn_item_serial_id', $serialRecord->id)
+                        ->where('is_active', true)
+                        ->with(['user', 'assignedBranch'])
+                        ->first();
+
                     $scannedUnit = [
                         'serial_number' => $serialRecord->serial_number,
                         'product_variant_id' => $serialRecord->product_variant_id,
                         'grn_number' => $serialRecord->grnItem?->grn?->grn_number,
                         'received_date' => $serialRecord->grnItem?->grn?->received_date?->toDateString(),
                         'verified' => true,
+                        'current_assignment' => [
+                            'status' => $activeAssignment ? 'Assigned' : 'Available',
+                            'user' => $activeAssignment?->user?->name ?? $activeAssignment?->person_name,
+                            'branch' => $activeAssignment?->assignedBranch?->name ?? $activeAssignment?->branch_name,
+                            'assigned_at' => $activeAssignment?->issue_date,
+                        ],
                     ];
                 } else {
                     $scannedUnit = [
@@ -397,6 +408,91 @@ class ProductController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to retrieve product details',
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
+            ], 500);
+        }
+    }
+
+    /**
+     * Every captured serial for this product with its current assignment
+     * status — powers Product Search's serial-level breakdown table.
+     */
+    public function serialsWithAssignments(string $id)
+    {
+        try {
+            $serials = \App\Models\GrnItemSerial::where('product_id', $id)
+                ->with(['productVariant'])
+                ->orderByDesc('id')
+                ->get();
+
+            $activeAssignments = \App\Models\ProductAssignment::whereIn('grn_item_serial_id', $serials->pluck('id'))
+                ->where('is_active', true)
+                ->with(['user', 'assignedBranch'])
+                ->get()
+                ->keyBy('grn_item_serial_id');
+
+            $rows = $serials->map(function ($s) use ($activeAssignments) {
+                $assignment = $activeAssignments->get($s->id);
+                return [
+                    'serial_number' => $s->serial_number,
+                    'variant_sku' => $s->productVariant?->sku,
+                    'branch' => $assignment?->assignedBranch?->name ?? $assignment?->branch_name,
+                    'assigned_to' => $assignment?->user?->name ?? $assignment?->person_name,
+                    'status' => $assignment ? 'Assigned' : 'Available',
+                ];
+            });
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Serial assignment breakdown retrieved successfully',
+                'data' => $rows,
+            ]);
+        } catch (\Throwable $th) {
+            Log::error('Product serialsWithAssignments error: ' . $th->getMessage());
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to retrieve serial assignment breakdown',
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
+            ], 500);
+        }
+    }
+
+    /**
+     * Every stock-transfer item that has ever moved this product — powers
+     * Product Search's Stock Transfer table. Includes the serial number
+     * when the row was a serial-tracked transfer.
+     */
+    public function transfersForProduct(string $id)
+    {
+        try {
+            $items = \App\Models\StockTransferItem::where('product_id', $id)
+                ->with(['stockTransfer.fromBranch', 'stockTransfer.toBranch'])
+                ->orderByDesc('id')
+                ->get();
+
+            $rows = $items->map(function ($item) {
+                $transfer = $item->stockTransfer;
+                return [
+                    'transfer_number' => $transfer?->transfer_number,
+                    'serial_number' => $item->serial_number,
+                    'from_branch' => $transfer?->fromBranch?->name,
+                    'to_branch' => $transfer?->toBranch?->name,
+                    'quantity' => $item->quantity_sent ?? $item->quantity_requested,
+                    'status' => $transfer?->status,
+                    'transfer_date' => $transfer?->transfer_date,
+                ];
+            });
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Stock transfer history retrieved successfully',
+                'data' => $rows,
+            ]);
+        } catch (\Throwable $th) {
+            Log::error('Product transfersForProduct error: ' . $th->getMessage());
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to retrieve stock transfer history',
                 'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
             ], 500);
         }

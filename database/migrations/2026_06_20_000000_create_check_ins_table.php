@@ -15,7 +15,7 @@ return new class extends Migration
             $table->id();
             $table->uuid('check_in_no')->unique();
             $table->foreignId('branch_id')->constrained('branches')->onDelete('cascade');
-            $table->foreignId('container_id')->constrained('containers')->onDelete('cascade');
+            $table->foreignId('container_id')->nullable()->constrained('containers')->nullOnDelete();
             $table->foreignId('product_id')->constrained('products')->onDelete('cascade');
             $table->decimal('quantity', 15, 4);
             $table->date('date');

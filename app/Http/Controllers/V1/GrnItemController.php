@@ -27,7 +27,7 @@ class GrnItemController extends Controller implements HasMiddleware
     public static function middleware(): array
     {
         return [
-            new Middleware('permission:GrnItem Index|Grn Index', only: ['index', 'show']),
+            new Middleware('permission:GrnItem Index|Grn Index|Product Index|ProductAssignment Index', only: ['index', 'show', 'searchAvailableSerials', 'resolveSerial']),
             new Middleware('permission:GrnItem Create|Grn Create', only: ['store', 'nextSerial']),
             new Middleware('permission:GrnItem Update|Grn Update', only: ['update']),
             new Middleware('permission:GrnItem Delete|Grn Delete', only: ['destroy']),
@@ -136,6 +136,131 @@ class GrnItemController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to resolve next serial number',
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
+            ], 500);
+        }
+    }
+
+    /**
+     * Search captured serials by product name, product code, variant SKU/
+     * barcode, or the serial number itself — powers the Product Assignment
+     * page's serial picker. Excludes serials that are already actively
+     * assigned unless explicitly asked to include them.
+     */
+    public function searchAvailableSerials(Request $request)
+    {
+        try {
+            $request->validate([
+                'q' => 'nullable|string|max:255',
+                'include_assigned' => 'nullable|boolean',
+                'product_id' => 'nullable|integer|exists:products,id',
+            ]);
+
+            $q = trim((string) $request->query('q', ''));
+
+            $query = GrnItemSerial::with(['product', 'productVariant']);
+
+            if ($request->filled('product_id')) {
+                $query->where('product_id', $request->integer('product_id'));
+            }
+
+            if ($q !== '') {
+                $query->where(function ($qr) use ($q) {
+                    $qr->where('serial_number', 'like', "%{$q}%")
+                        ->orWhereHas('product', function ($p) use ($q) {
+                            $p->where('product_name', 'like', "%{$q}%")
+                              ->orWhere('product_code', 'like', "%{$q}%");
+                        })
+                        ->orWhereHas('productVariant', function ($v) use ($q) {
+                            $v->where('sku', 'like', "%{$q}%")
+                              ->orWhere('barcode', 'like', "%{$q}%");
+                        });
+                });
+            }
+
+            if (!$request->boolean('include_assigned')) {
+                $query->whereDoesntHave('assignments', function ($a) {
+                    $a->where('is_active', true);
+                });
+            }
+
+            $serials = $query->orderByDesc('id')->limit(50)->get()->map(function ($s) {
+                return [
+                    'id' => $s->id,
+                    'serial_number' => $s->serial_number,
+                    'product_id' => $s->product_id,
+                    'product_name' => $s->product?->product_name,
+                    'product_code' => $s->product?->product_code,
+                    'product_variant_id' => $s->product_variant_id,
+                    'variant_name' => $s->productVariant?->variant_name,
+                    'variant_sku' => $s->productVariant?->sku,
+                ];
+            });
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Serials fetched successfully',
+                'data' => $serials,
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => $e->getMessage(),
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to search serials',
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
+            ], 500);
+        }
+    }
+
+    /**
+     * Resolve a bare serial number (as scanned from a QR code) to its owning
+     * product — used to route a scan straight to that product's lookup page.
+     * A serial is only unique per variant (not globally), so if the same
+     * text was somehow used across two variants this returns the most
+     * recently captured match.
+     */
+    public function resolveSerial(Request $request)
+    {
+        try {
+            $request->validate([
+                'serial' => 'required|string|max:255',
+            ]);
+
+            $serial = GrnItemSerial::where('serial_number', $request->query('serial'))
+                ->orderByDesc('id')
+                ->first();
+
+            if (!$serial) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'No product found for this serial number.',
+                ], 404);
+            }
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Serial resolved successfully',
+                'data' => [
+                    'product_id' => $serial->product_id,
+                    'product_variant_id' => $serial->product_variant_id,
+                    'serial_number' => $serial->serial_number,
+                ],
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => $e->getMessage(),
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to resolve serial number',
                 'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }

@@ -137,13 +137,23 @@ class GrnController extends Controller implements HasMiddleware
             $data = $request->validated();
             unset($data['status']);
 
+            if (empty($data['grn_number'])) {
+                $maxId = (Grn::max('id') ?? 0) + 1;
+                $grnNumber = 'GRN-' . date('Y') . '-' . str_pad($maxId, 4, '0', STR_PAD_LEFT);
+                while (Grn::where('grn_number', $grnNumber)->exists()) {
+                    $maxId++;
+                    $grnNumber = 'GRN-' . date('Y') . '-' . str_pad($maxId, 4, '0', STR_PAD_LEFT);
+                }
+                $data['grn_number'] = $grnNumber;
+            }
+
             if ($request->hasFile('bill_image')) {
                 $imagePath = $this->handleFileUpload(
                     $request,
                     'bill_image',
                     null,
                     'grns/bills',
-                    'GRN-BILL-' . ($data['grn_number'] ?? uniqid())
+                    'GRN-BILL-' . $data['grn_number']
                 );
                 $data['bill_image'] = $imagePath;
             } else {
@@ -157,7 +167,7 @@ class GrnController extends Controller implements HasMiddleware
                 $data['received_by'] = Auth::id();
             }
             if (empty($data['batch_number'])) {
-                $data['batch_number'] = 'BATCH-' . date('Ymd') . '-' . rand(1000, 9999);
+                $data['batch_number'] = 'BATCH-' . date('Ymd') . '-' . rand(100, 999999);
             }
 
             $grn = Grn::create($data);
@@ -247,7 +257,7 @@ class GrnController extends Controller implements HasMiddleware
     public function show(string $id)
     {
         try {
-            $grn = Grn::with(['purchaseOrder', 'supplier', 'receiver', 'items.product', 'items.productVariant.product', 'items.unit', 'items.container'])->find($id);
+            $grn = Grn::with(['purchaseOrder', 'supplier', 'receiver', 'items.product', 'items.productVariant.product', 'items.unit', 'items.container', 'items.serials'])->find($id);
 
             if (!$grn) {
                 return response()->json([

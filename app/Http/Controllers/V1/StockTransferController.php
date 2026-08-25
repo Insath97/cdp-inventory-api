@@ -19,6 +19,7 @@ use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class StockTransferController extends Controller implements HasMiddleware
 {
@@ -106,6 +107,16 @@ class StockTransferController extends Controller implements HasMiddleware
             }
             if (!isset($data['created_by'])) {
                 $data['created_by'] = Auth::id();
+            }
+
+            if (empty($data['transfer_number'])) {
+                $maxId = (StockTransfer::max('id') ?? 0) + 1;
+                $transferNumber = 'TRF-' . date('Y') . '-' . str_pad($maxId, 4, '0', STR_PAD_LEFT);
+                while (StockTransfer::where('transfer_number', $transferNumber)->exists()) {
+                    $maxId++;
+                    $transferNumber = 'TRF-' . date('Y') . '-' . str_pad($maxId, 4, '0', STR_PAD_LEFT);
+                }
+                $data['transfer_number'] = $transferNumber;
             }
 
             $stockTransfer = StockTransfer::create($data);

@@ -80,6 +80,22 @@ class StockTransferItemController extends Controller implements HasMiddleware
 
             $data = $request->validated();
 
+            // A serial-tracked row identifies one physical unit — same
+            // auto-fill + qty=1 lock as Product Assignment's serial flow.
+            if (!empty($data['grn_item_serial_id'])) {
+                $serial = \App\Models\GrnItemSerial::find($data['grn_item_serial_id']);
+                if (!$serial) {
+                    DB::rollBack();
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Serial number not found.',
+                    ], 404);
+                }
+                $data['product_variant_id'] = $serial->product_variant_id;
+                $data['serial_number'] = $serial->serial_number;
+                $data['quantity_requested'] = 1;
+            }
+
             // Validate against the source branch's current balance up front,
             // at save time — regardless of the transfer's status. Waiting
             // until the transfer is actually dispatched to discover the
@@ -168,7 +184,22 @@ class StockTransferItemController extends Controller implements HasMiddleware
             $oldProductId = $stockTransferItem->product_id;
             $oldVariantId = $stockTransferItem->product_variant_id;
 
-            $stockTransferItem->update($request->validated());
+            $data = $request->validated();
+            if (!empty($data['grn_item_serial_id'])) {
+                $serial = \App\Models\GrnItemSerial::find($data['grn_item_serial_id']);
+                if (!$serial) {
+                    DB::rollBack();
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Serial number not found.',
+                    ], 404);
+                }
+                $data['product_variant_id'] = $serial->product_variant_id;
+                $data['serial_number'] = $serial->serial_number;
+                $data['quantity_requested'] = 1;
+            }
+
+            $stockTransferItem->update($data);
 
             // Check if this item's parent transfer has already been posted to ledger
             $transfer = $stockTransferItem->stockTransfer;

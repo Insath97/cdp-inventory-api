@@ -29,6 +29,7 @@ class CreateUserRequest extends FormRequest
         return [
             'name' => 'required|string|max:255',
             'username' => 'required|string|max:255|unique:users,username',
+            'user_code' => 'required|string|max:255|unique:users,user_code',
             'email' => 'required|email|max:255|unique:users,email',
             'password' => ['required', 'string', Password::min(8)->letters()->mixedCase()->numbers()->symbols()],
             'user_type' => 'required|in:admin,hierarchy,customer',
@@ -37,6 +38,7 @@ class CreateUserRequest extends FormRequest
             // Hierarchy specific validation
             'parent_user_id' => 'nullable|exists:users,id',
             'reporting_manager_id' => 'nullable|exists:reporting_managers,id',
+            'reporting_manager_user_id' => 'nullable|exists:users,id',
 
             // Location fields (required based on business logic, but nullable in DB)
             'branch_id' => 'nullable|exists:branches,id',
@@ -48,6 +50,13 @@ class CreateUserRequest extends FormRequest
             'is_active' => 'sometimes|boolean',
             'can_login' => 'sometimes|boolean',
             'is_reporting_manager' => 'sometimes|boolean',
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'user_code.unique' => 'This user code is already in use for another user. Please enter correct user code.',
         ];
     }
 

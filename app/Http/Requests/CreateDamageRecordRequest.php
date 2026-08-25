@@ -24,6 +24,7 @@ class CreateDamageRecordRequest extends FormRequest
         return [
             'product_id' => 'required|exists:products,id',
             'product_variant_id' => 'nullable|exists:product_variants,id',
+            'serial_number' => 'nullable|string|max:255',
             'branch_id' => 'required|exists:branches,id',
             'reported_by' => 'nullable|exists:users,id',
             'approved_by' => 'nullable|exists:users,id',

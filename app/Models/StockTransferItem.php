@@ -10,6 +10,8 @@ class StockTransferItem extends Model
         'stock_transfer_id',
         'product_id',
         'product_variant_id',
+        'grn_item_serial_id',
+        'serial_number',
         'unit_id',
         'quantity_requested',
         'quantity_sent',
@@ -44,6 +46,11 @@ class StockTransferItem extends Model
     public function productVariant()
     {
         return $this->belongsTo(ProductVariant::class);
+    }
+
+    public function grnItemSerial()
+    {
+        return $this->belongsTo(GrnItemSerial::class);
     }
 
     public function unit()

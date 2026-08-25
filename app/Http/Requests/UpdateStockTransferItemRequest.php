@@ -19,6 +19,7 @@ class UpdateStockTransferItemRequest extends FormRequest
             'stock_transfer_id' => 'required|exists:stock_transfers,id',
             'product_id' => 'required|exists:products,id',
             'product_variant_id' => 'nullable|exists:product_variants,id',
+            'grn_item_serial_id' => 'nullable|exists:grn_item_serials,id',
             'unit_id' => 'required|exists:units,id',
             'quantity_requested' => 'required|numeric|min:0',
             'quantity_sent' => 'nullable|numeric|min:0',

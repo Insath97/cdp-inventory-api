@@ -24,7 +24,7 @@ class CreateCheckInRequest extends FormRequest
         return [
                 'check_in_no' => 'required|uuid|unique:check_ins,check_in_no',
                 'branch_id' => 'required|exists:branches,id',
-                'container_id' => 'required|exists:containers,id',
+                'container_id' => 'nullable|exists:containers,id',
                 'product_id' => 'required|exists:products,id',
                 'quantity' => 'required|numeric|min:0',
                 'date' => 'required|date',
