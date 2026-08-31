@@ -632,10 +632,24 @@ class ProductController extends Controller implements HasMiddleware
 
             // Prevent deletion if product is referenced in GRN items, PO items, stock ledgers, assignments, or returns
             $hasGrnItems = DB::table('grn_items')->where('product_id', $id)->exists();
-            $hasPoItems = DB::table('purchase_order_items')->where('product_id', $id)->exists();
-            $hasStockLedger = DB::table('stock_ledgers')->where('product_id', $id)->exists();
-            $hasAssignments = DB::table('product_assignments')->where('product_id', $id)->exists();
-            $hasReturns = DB::table('product_returns')->where('product_id', $id)->exists();
+            // purchase_order_items points at product_variants.id, not products.id,
+            // so this has to resolve the product's variants first.
+            $hasPoItems = DB::table('purchase_order_items')
+                ->whereIn('variant_id', DB::table('product_variants')->where('product_id', $id)->select('id'))
+                ->exists();
+            $hasStockLedger = DB::table('stock_ledger')->where('product_id', $id)->exists();
+            $hasAssignments = DB::table('product_assignments')->where('product_variant_id', $id)->exists();
+            // product_returns stores its line items as a JSON array of
+            // {product_id, product_sku, product_name, quantity} objects rather
+            // than a foreign key column, so the reference check has to look
+            // inside that array. The id may be encoded as a number or a
+            // string depending on how the client sent it.
+            $hasReturns = DB::table('product_returns')
+                ->where(function ($query) use ($id) {
+                    $query->whereJsonContains('products', ['product_id' => (int) $id])
+                        ->orWhereJsonContains('products', ['product_id' => (string) $id]);
+                })
+                ->exists();
 
             if ($hasGrnItems || $hasPoItems || $hasStockLedger || $hasAssignments || $hasReturns) {
                 return response()->json([

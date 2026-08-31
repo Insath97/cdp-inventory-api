@@ -23,7 +23,6 @@ class ProductAssignment extends Model
         'serial_number',
         'user_id',
         'branch_id',
-        'product_id',
         'product_sku',
         'product_name',
         'quantity',
