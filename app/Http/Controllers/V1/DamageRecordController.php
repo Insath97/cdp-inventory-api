@@ -123,25 +123,8 @@ class DamageRecordController extends Controller implements HasMiddleware
                 'url' => '/damage-records/' . $record->id,
             ]);
 
-            $targets = $recipientService->mergeCollections(
-                $recipientService->inventoryAdmins(),
-                $recipientService->usersByRoles(['Inventory Approver', 'INVENTORY APPROVER'])
-            );
-
-            foreach ($targets as $user) {
-                $user->notify($notification);
-            }
-
-            $reportingManager = $recipientService->reportingManagerOf(Auth::user(), ['Damage Record Update']);
-            if ($reportingManager && !$targets->contains('id', $reportingManager->id)) {
-                $reportingManager->notify($notification);
-            }
-
-            $admins = $recipientService->adminsAndSuperAdmins($record->branch_id);
-            foreach ($admins as $admin) {
-                if ($admin->email) {
-                    \Illuminate\Support\Facades\Mail::to($admin->email)->send(new \App\Mail\DamagedRecordMail($record));
-                }
+            foreach ($recipientService->actorAndReportingManager(Auth::user()) as $target) {
+                $target->notify($notification);
             }
 
             DB::commit();
@@ -264,20 +247,8 @@ class DamageRecordController extends Controller implements HasMiddleware
                     'url' => '/damage-records/' . $record->id,
                 ]);
 
-                $targets = $recipientService->mergeCollections(
-                    $recipientService->inventoryAdmins(),
-                    $recipientService->usersByRoles(['Inventory Approver', 'INVENTORY APPROVER'])
-                );
-
-                foreach ($targets as $user) {
-                    $user->notify($notification);
-                }
-
-                $admins = $recipientService->adminsAndSuperAdmins($record->branch_id);
-                foreach ($admins as $admin) {
-                    if ($admin->email) {
-                        \Illuminate\Support\Facades\Mail::to($admin->email)->send(new \App\Mail\DamagedRecordMail($record));
-                    }
+                foreach ($recipientService->actorAndReportingManager(Auth::user()) as $target) {
+                    $target->notify($notification);
                 }
             } elseif ($movingFromApproved) {
                 $this->reverseStockDeduction($record);

@@ -23,10 +23,10 @@ class ReportingManagerController extends Controller implements HasMiddleware
     public static function middleware(): array
     {
         return [
-            new Middleware('permission:ReportingManager Index', only: ['index', 'show']),
-            new Middleware('permission:ReportingManager Create', only: ['store']),
-            new Middleware('permission:ReportingManager Update', only: ['update']),
-            new Middleware('permission:ReportingManager Delete', only: ['destroy']),
+            new Middleware('permission:Reporting Manager Index', only: ['index', 'show']),
+            new Middleware('permission:Reporting Manager Create', only: ['store']),
+            new Middleware('permission:Reporting Manager Update', only: ['update']),
+            new Middleware('permission:Reporting Manager Delete', only: ['destroy']),
         ];
     }
     /**

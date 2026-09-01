@@ -217,13 +217,8 @@ class ExpiryRecordController extends Controller implements HasMiddleware
                     'url' => '/expiry-records/' . $expiryRecord->id,
                 ]);
 
-                $targets = $recipientService->mergeCollections(
-                    $recipientService->stockControlTeam(),
-                    $recipientService->auditTeam()
-                );
-
-                foreach ($targets as $user) {
-                    $user->notify($notification);
+                foreach ($recipientService->actorAndReportingManager(Auth::user()) as $target) {
+                    $target->notify($notification);
                 }
             }
 

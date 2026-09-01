@@ -258,18 +258,10 @@ class ProductsAssignmentsController extends Controller implements HasMiddleware
             ]);
 
             try {
-                $targets = $recipientService->mergeCollections(
-                    $recipientService->usersByNames([$productassignment->person_name]),
-                    $recipientService->usersByPermissions(['ProductAssignment Update', 'ProductAssignment Index'])
-                );
-
-                foreach ($targets as $user) {
-                    $user->notify($notification);
-                }
-
-                $reportingManager = $recipientService->reportingManagerOf(Auth::user(), ['ProductAssignment Update']);
-                if ($reportingManager && !$targets->contains('id', $reportingManager->id)) {
-                    $reportingManager->notify($notification);
+                // The person the product was assigned to, plus their reporting
+                // manager — the assignment is only those two people's business.
+                foreach ($recipientService->actorAndReportingManager($productassignment->user) as $target) {
+                    $target->notify($notification);
                 }
             } catch (\Throwable $notifyErr) {
                 Log::error('Failed to send product assignment notification: ' . $notifyErr->getMessage());
@@ -529,13 +521,10 @@ class ProductsAssignmentsController extends Controller implements HasMiddleware
                     'url' => '/product-assignments/' . $productassignment->id,
                 ]);
 
-                $targets = $recipientService->mergeCollections(
-                    $recipientService->usersByNames([$productassignment->person_name]),
-                    $recipientService->usersByPermissions(['ProductAssignment Update', 'ProductAssignment Index'])
-                );
-
-                foreach ($targets as $user) {
-                    $user->notify($notification);
+                // The person the product was assigned to, plus their reporting
+                // manager — nobody else needs telling that it came back.
+                foreach ($recipientService->actorAndReportingManager($productassignment->user) as $target) {
+                    $target->notify($notification);
                 }
             } catch (\Throwable $notifyErr) {
                 Log::error('Failed to send product return notification: ' . $notifyErr->getMessage());

@@ -115,16 +115,4 @@ return [
         'name' => env('MAIL_FROM_NAME', 'Example'),
     ],
 
-    /*
-    |--------------------------------------------------------------------------
-    | Order Notification Address
-    |--------------------------------------------------------------------------
-    |
-    | A fixed mailbox that receives an email whenever a purchase order is
-    | created, in addition to the per-user dashboard notifications.
-    |
-    */
-
-    'order_notification_address' => env('ORDER_NOTIFICATION_EMAIL'),
-
 ];

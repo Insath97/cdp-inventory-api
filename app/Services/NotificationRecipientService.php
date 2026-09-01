@@ -46,6 +46,14 @@ class NotificationRecipientService
             return null;
         }
 
+        // No permission filter asked for: the manager is the intended recipient
+        // whatever they can do in the app. Notifications now go to the actor and
+        // their manager and nobody else, so gating on permissions here would
+        // drop the notification entirely rather than merely narrowing it.
+        if (empty($relevantPermissions)) {
+            return $reportingManagerUser;
+        }
+
         // hasAnyPermission() throws PermissionDoesNotExist if any name in the
         // list was never seeded (a typo elsewhere shouldn't silently kill the
         // whole notification), so guard it and fall through to the role check.
@@ -63,6 +71,53 @@ class NotificationRecipientService
 
         return $hasPermission ? $reportingManagerUser : null;
     }
+    /**
+     * The only two people an event notification reaches: the user who performed
+     * it -- so they see their own action confirmed -- and that user's reporting
+     * manager. Every routine event routes through here now; the permission,
+     * role and branch group lookups below remain for the system alerts that
+     * have no acting user to trace a manager back from.
+     */
+    public function actorAndReportingManager(?User $actor): Collection
+    {
+        $manager = $this->reportingManagerOf($actor);
+
+        return $this->mergeCollections(
+            $actor ? collect([$actor]) : collect(),
+            $manager ? collect([$manager]) : collect()
+        );
+    }
+
+    /**
+     * Users who are themselves reporting managers, resolved by matching the
+     * reporting_managers directory back onto User accounts the same way
+     * reportingManagerOf() does. Used by the alerts that fire off a schedule
+     * or a stock movement rather than off somebody's action, where there is no
+     * actor whose manager we could look up.
+     */
+    public function reportingManagers(): Collection
+    {
+        $entries = ReportingManager::query()
+            ->where('is_active', true)
+            ->get(['email', 'username']);
+
+        $emails = $entries->pluck('email')->filter()->values();
+        $usernames = $entries->pluck('username')->filter()->values();
+
+        if ($emails->isEmpty() && $usernames->isEmpty()) {
+            return collect();
+        }
+
+        return User::query()
+            ->where('is_active', true)
+            ->where(function ($query) use ($emails, $usernames) {
+                $query->whereIn('email', $emails)
+                    ->orWhereIn('username', $usernames);
+            })
+            ->distinct()
+            ->get();
+    }
+
     public function usersByPermissions(array $permissions): Collection
     {
         $users = User::query()

@@ -27,10 +27,10 @@ class GrnItemController extends Controller implements HasMiddleware
     public static function middleware(): array
     {
         return [
-            new Middleware('permission:GrnItem Index|Grn Index|Product Index|ProductAssignment Index', only: ['index', 'show', 'searchAvailableSerials', 'resolveSerial']),
-            new Middleware('permission:GrnItem Create|Grn Create', only: ['store', 'nextSerial']),
-            new Middleware('permission:GrnItem Update|Grn Update', only: ['update']),
-            new Middleware('permission:GrnItem Delete|Grn Delete', only: ['destroy']),
+            new Middleware('permission:Grn Item Index|Grn Index|Product Index|ProductAssignment Index', only: ['index', 'show', 'searchAvailableSerials', 'resolveSerial']),
+            new Middleware('permission:Grn Item Create|Grn Create', only: ['store', 'nextSerial']),
+            new Middleware('permission:Grn Item Update|Grn Update', only: ['update']),
+            new Middleware('permission:Grn Item Delete|Grn Delete', only: ['destroy']),
         ];
     }
 

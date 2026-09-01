@@ -196,19 +196,9 @@ class PurchaseReturnNoteController extends Controller implements HasMiddleware
                 ]);
 
                 $recipientService = app(NotificationRecipientService::class);
-                // Branch-based notification commented out - PRN does not use branch
-                // $targets = $recipientService->usersByBranchRoles($prn->branch, ['ADMIN', 'SUPER ADMIN', 'REPORTING MANAGER']);
-                // if ($targets->isEmpty()) {
-                $targets = $recipientService->usersByRoles(['ADMIN', 'SUPER ADMIN']);
-                // }
 
-                foreach ($targets as $targetUser) {
-                    $targetUser->notify($notification);
-                }
-
-                $reportingManager = $recipientService->reportingManagerOf(Auth::user(), ['PurchaseReturnNote Update']);
-                if ($reportingManager && !$targets->contains('id', $reportingManager->id)) {
-                    $reportingManager->notify($notification);
+                foreach ($recipientService->actorAndReportingManager(Auth::user()) as $target) {
+                    $target->notify($notification);
                 }
             } catch (\Throwable $notifyErr) {
                 Log::error('Failed to send PRN creation notification: ' . $notifyErr->getMessage());
@@ -400,7 +390,11 @@ class PurchaseReturnNoteController extends Controller implements HasMiddleware
                             'reference_type' => PurchaseReturnNote::class,
                             'url' => '/purchase-returns/' . $prn->id,
                         ]);
-                        $creator->notify($approvalNotification);
+
+                        $recipientService = app(NotificationRecipientService::class);
+                        foreach ($recipientService->actorAndReportingManager($creator) as $target) {
+                            $target->notify($approvalNotification);
+                        }
                     }
                 } catch (\Throwable $notifyError) {
                     Log::error('Failed to send PRN approved notification: ' . $notifyError->getMessage());

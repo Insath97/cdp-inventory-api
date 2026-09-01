@@ -45,6 +45,16 @@ class PurchaseOrderController extends Controller implements HasMiddleware
 
             $user = Auth::user();
 
+            // Visibility is permission-driven, not role-driven: a user holding
+            // 'PurchaseOrder View All' sees every purchase order, everyone else
+            // is scoped to the ones they created. Grant the permission to any
+            // role that needs a wider view rather than special-casing roles here.
+            $restrictToOwn = $user && ! $user->can('PurchaseOrder View All');
+
+            if ($restrictToOwn) {
+                $query->where('created_by', $user->id);
+            }
+
             if ($request->has('search')) {
                 $query->search($request->search);
             }
@@ -72,15 +82,12 @@ class PurchaseOrderController extends Controller implements HasMiddleware
                 $query->where('status', $request->status);
             }
 
-            $statusCountsQuery = DB::table('purchase_orders');
-            if (!empty($subordinateIds)) {
-                if ($isAdminOrReportingManager) {
-                    $statusCountsQuery->where(function ($sq) use ($subordinateIds) {
-                        $sq->whereIn('created_by', $subordinateIds);
-                    });
-                } else {
-                    $statusCountsQuery->where('created_by', $user->id);
-                }
+            // Same visibility scope as the list above, so the tab counts never
+            // advertise purchase orders the user cannot actually open. This is a
+            // raw query builder, so soft-deleted rows have to be excluded by hand.
+            $statusCountsQuery = DB::table('purchase_orders')->whereNull('deleted_at');
+            if ($restrictToOwn) {
+                $statusCountsQuery->where('created_by', $user->id);
             }
             $statusCounts = $statusCountsQuery
                 ->selectRaw('status, count(*) as count')
@@ -174,33 +181,29 @@ class PurchaseOrderController extends Controller implements HasMiddleware
                 ]);
 
                 $recipientService = app(\App\Services\NotificationRecipientService::class);
-                $targets = $recipientService->mergeCollections(
-                    $purchaseOrder->creator ? collect([$purchaseOrder->creator]) : collect(),
-                    $purchaseOrder->approver ? collect([$purchaseOrder->approver]) : collect(),
-                    $recipientService->procurement(),
-                    $recipientService->inventoryManagers()
-                );
+                $reportingManager = $recipientService->reportingManagerOf($purchaseOrder->creator);
 
-                foreach ($targets as $user) {
-                    $user->notify($notification);
+                foreach ($recipientService->actorAndReportingManager($purchaseOrder->creator) as $target) {
+                    $target->notify($notification);
                 }
 
-                // Also notify the creator's reporting manager, if one resolves
-                // and isn't already covered by the groups above.
-                $reportingManager = $recipientService->reportingManagerOf(
-                    $purchaseOrder->creator,
-                    ['PurchaseOrder Create', 'PurchaseOrder Update']
-                );
-                if ($reportingManager && !$targets->contains('id', $reportingManager->id)) {
-                    $reportingManager->notify($notification);
-                }
-
-                // Also send a copy to the fixed order-notification mailbox
-                // configured in .env (ORDER_NOTIFICATION_EMAIL).
-                $orderNotificationEmail = config('mail.order_notification_address');
-                if (! empty($orderNotificationEmail)) {
-                    \Illuminate\Support\Facades\Mail::to($orderNotificationEmail)
+                // The creator's reporting manager is the only person emailed
+                // about a new purchase order; everyone in $targets above gets
+                // the in-app dashboard notification and nothing else. Resolving
+                // the manager can come back empty (no reporting_manager_id, no
+                // matching User for the directory entry, or they hold neither
+                // the PO permissions nor an admin/manager role), so say so in
+                // the log rather than dropping the mail silently.
+                if ($reportingManager?->email) {
+                    \Illuminate\Support\Facades\Mail::to($reportingManager->email)
                         ->send(new \App\Mail\PurchaseOrderCreatedMail($purchaseOrder));
+                } else {
+                    \Illuminate\Support\Facades\Log::warning(
+                        'No reporting manager resolved for purchase order '
+                        . ($purchaseOrder->po_number ?? $purchaseOrder->id)
+                        . ' (creator: ' . ($purchaseOrder->creator?->name ?? 'unknown')
+                        . ') — creation email not sent.'
+                    );
                 }
             } catch (\Throwable $notifyError) {
                 \Illuminate\Support\Facades\Log::error('Failed to send purchase order created notification: ' . $notifyError->getMessage());
@@ -352,7 +355,11 @@ class PurchaseOrderController extends Controller implements HasMiddleware
                             'reference_type' => PurchaseOrder::class,
                             'url' => '/purchase-orders/' . $purchaseOrder->id,
                         ]);
-                        $creator->notify($notification);
+
+                        $recipientService = app(\App\Services\NotificationRecipientService::class);
+                        foreach ($recipientService->actorAndReportingManager($creator) as $target) {
+                            $target->notify($notification);
+                        }
                     }
                 } catch (\Throwable $notifyError) {
                     \Illuminate\Support\Facades\Log::error('Failed to send purchase order approved notification: ' . $notifyError->getMessage());

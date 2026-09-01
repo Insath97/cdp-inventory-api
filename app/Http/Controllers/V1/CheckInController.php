@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\CreateCheckInRequest;
 use App\Http\Requests\UpdateCheckInRequest;
 use App\Models\CheckIn;
-use App\Models\Branch;
 use App\Services\NotificationRecipientService;
 use App\Traits\ActivityLogTrait;
 use Illuminate\Http\Request;
@@ -81,8 +80,6 @@ class CheckInController extends Controller implements HasMiddleware
             $checkIn = CheckIn::create($data);
 
             if ($checkIn->status === 'completed') {
-                $branch = Branch::find($checkIn->branch_id);
-
                 $recipientService = app(NotificationRecipientService::class);
                 $notification = new \App\Notifications\InventoryAlertNotification([
                     'title' => 'Checked In',
@@ -95,27 +92,8 @@ class CheckInController extends Controller implements HasMiddleware
                     'url' => '/check-ins/' . $checkIn->id,
                 ]);
 
-                $targets = $recipientService->mergeCollections(
-                    Auth::user() ? collect([Auth::user()]) : collect(),
-                    $recipientService->branchAdmins($branch),
-                    $recipientService->supervisorsForBranch($branch),
-                    $recipientService->hrTeam()
-                );
-
-                foreach ($targets as $user) {
-                    $user->notify($notification);
-                }
-
-                $reportingManager = $recipientService->reportingManagerOf(Auth::user(), ['CheckIn Update']);
-                if ($reportingManager && !$targets->contains('id', $reportingManager->id)) {
-                    $reportingManager->notify($notification);
-                }
-
-                $admins = $recipientService->adminsAndSuperAdmins($checkIn->branch_id);
-                foreach ($admins as $admin) {
-                    if ($admin->email) {
-                        \Illuminate\Support\Facades\Mail::to($admin->email)->send(new \App\Mail\ManualInventoryActivityMail($checkIn, 'Check In'));
-                    }
+                foreach ($recipientService->actorAndReportingManager(Auth::user()) as $target) {
+                    $target->notify($notification);
                 }
             }
 
@@ -187,8 +165,6 @@ class CheckInController extends Controller implements HasMiddleware
 
           
             if ($previousStatus !== 'completed' && $checkIn->status === 'completed') {
-                $branch = Branch::find($checkIn->branch_id);
-
                 $recipientService = app(NotificationRecipientService::class);
                 $notification = new \App\Notifications\InventoryAlertNotification([
                     'title' => 'Checked In',
@@ -201,22 +177,8 @@ class CheckInController extends Controller implements HasMiddleware
                     'url' => '/check-ins/' . $checkIn->id,
                 ]);
 
-                $targets = $recipientService->mergeCollections(
-                    Auth::user() ? collect([Auth::user()]) : collect(),
-                    $recipientService->branchAdmins($branch),
-                    $recipientService->supervisorsForBranch($branch),
-                    $recipientService->hrTeam()
-                );
-
-                foreach ($targets as $user) {
-                    $user->notify($notification);
-                }
-
-                $admins = $recipientService->adminsAndSuperAdmins($checkIn->branch_id);
-                foreach ($admins as $admin) {
-                    if ($admin->email) {
-                        \Illuminate\Support\Facades\Mail::to($admin->email)->send(new \App\Mail\ManualInventoryActivityMail($checkIn, 'Check In'));
-                    }
+                foreach ($recipientService->actorAndReportingManager(Auth::user()) as $target) {
+                    $target->notify($notification);
                 }
             }
 

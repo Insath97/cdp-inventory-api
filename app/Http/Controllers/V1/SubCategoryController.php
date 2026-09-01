@@ -20,8 +20,11 @@ class SubCategoryController extends Controller
      public static function middleware(): array
     {
         return [
-           new Middleware('permission:manage sub categories', ['only' => ['index', 'store', 'update', 'destroy']]),
-           new Middleware('permission:view sub categories', ['only' => ['show']]),
+           new Middleware('permission:Sub Category Index', only: ['index']),
+           new Middleware('permission:Sub Category Show|Sub Category Index', only: ['show']),
+           new Middleware('permission:Sub Category Create', only: ['store']),
+           new Middleware('permission:Sub Category Update', only: ['update']),
+           new Middleware('permission:Sub Category Delete', only: ['destroy']),
         ];
     }
 

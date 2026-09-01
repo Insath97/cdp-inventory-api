@@ -20,8 +20,11 @@ class MainCategoryController extends Controller
      public static function middleware(): array
     {
         return [
-           new Middleware('permission:manage main categories', ['only' => ['index', 'store', 'update', 'destroy']]),
-           new Middleware('permission:view main categories', ['only' => ['show']]),
+           new Middleware('permission:Main Category Index', only: ['index']),
+           new Middleware('permission:Main Category Show|Main Category Index', only: ['show']),
+           new Middleware('permission:Main Category Create', only: ['store']),
+           new Middleware('permission:Main Category Update', only: ['update']),
+           new Middleware('permission:Main Category Delete', only: ['destroy']),
         ];
     }
     /**

@@ -19,10 +19,12 @@ class PurchaseReturnNoteItemController extends Controller implements HasMiddlewa
     public static function middleware(): array
     {
         return [
-            new Middleware('permission:PurchaseReturnNoteItem Index', only: ['index', 'show']),
-            new Middleware('permission:PurchaseReturnNoteItem Create', only: ['store']),
-            new Middleware('permission:PurchaseReturnNoteItem Update', only: ['update']),
-            new Middleware('permission:PurchaseReturnNoteItem Delete', only: ['destroy']),
+            // The parent permission also grants the child: the UI only ever gates the
+            // return note itself, and saving one posts its items right after the header.
+            new Middleware('permission:PurchaseReturnNoteItem Index|PurchaseReturnNote Index', only: ['index', 'show']),
+            new Middleware('permission:PurchaseReturnNoteItem Create|PurchaseReturnNote Create', only: ['store']),
+            new Middleware('permission:PurchaseReturnNoteItem Update|PurchaseReturnNote Update', only: ['update']),
+            new Middleware('permission:PurchaseReturnNoteItem Delete|PurchaseReturnNote Delete', only: ['destroy']),
         ];
     }
 

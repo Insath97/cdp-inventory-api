@@ -95,27 +95,8 @@ class CheckOutController extends Controller implements HasMiddleware
                 'url' => '/check-outs/' . $checkOut->id,
             ]);
 
-            $targets = $recipientService->mergeCollections(
-                Auth::user() ? collect([Auth::user()]) : collect(),
-                $recipientService->branchAdmins($checkOut->branch),
-                $recipientService->supervisorsForBranch($checkOut->branch),
-                $recipientService->hrTeam()
-            );
-
-            foreach ($targets as $user) {
-                $user->notify($notification);
-            }
-
-            $reportingManager = $recipientService->reportingManagerOf(Auth::user(), ['CheckOut Update']);
-            if ($reportingManager && !$targets->contains('id', $reportingManager->id)) {
-                $reportingManager->notify($notification);
-            }
-
-            $admins = $recipientService->adminsAndSuperAdmins($checkOut->branch_id);
-            foreach ($admins as $admin) {
-                if ($admin->email) {
-                    \Illuminate\Support\Facades\Mail::to($admin->email)->send(new \App\Mail\ManualInventoryActivityMail($checkOut, 'Check Out'));
-                }
+            foreach ($recipientService->actorAndReportingManager(Auth::user()) as $target) {
+                $target->notify($notification);
             }
 
             DB::commit();
