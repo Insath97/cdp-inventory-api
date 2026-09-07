@@ -14,10 +14,12 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Routing\Controllers\HasMiddleware;
+use App\Traits\TogglesActiveStatus;
 
 class CheckOutController extends Controller implements HasMiddleware
 {
     use ActivityLogTrait;
+    use TogglesActiveStatus;
 
     public static function middleware(): array
     {
@@ -95,27 +97,8 @@ class CheckOutController extends Controller implements HasMiddleware
                 'url' => '/check-outs/' . $checkOut->id,
             ]);
 
-            $targets = $recipientService->mergeCollections(
-                Auth::user() ? collect([Auth::user()]) : collect(),
-                $recipientService->branchAdmins($checkOut->branch),
-                $recipientService->supervisorsForBranch($checkOut->branch),
-                $recipientService->hrTeam()
-            );
-
-            foreach ($targets as $user) {
-                $user->notify($notification);
-            }
-
-            $reportingManager = $recipientService->reportingManagerOf(Auth::user(), ['CheckOut Update']);
-            if ($reportingManager && !$targets->contains('id', $reportingManager->id)) {
-                $reportingManager->notify($notification);
-            }
-
-            $admins = $recipientService->adminsAndSuperAdmins($checkOut->branch_id);
-            foreach ($admins as $admin) {
-                if ($admin->email) {
-                    \Illuminate\Support\Facades\Mail::to($admin->email)->send(new \App\Mail\ManualInventoryActivityMail($checkOut, 'Check Out'));
-                }
+            foreach ($recipientService->actorAndReportingManager(Auth::user()) as $target) {
+                $target->notify($notification);
             }
 
             DB::commit();
@@ -251,32 +234,16 @@ class CheckOutController extends Controller implements HasMiddleware
      */
     public function toggleStatus(string $id)
     {
-        try {
-            $checkOut = CheckOut::find($id);
-            if (!$checkOut) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'CheckOut not found',
-                ], 404);
-            }
-            $checkOut->is_active = !$checkOut->is_active;
-            $checkOut->save();
-            $this->logActivity('TOGGLE_STATUS', 'CheckOut', "Toggled status for check-out ID {$checkOut->id}");
-            return response()->json([
-                'status' => 'success',
-                'message' => 'CheckOut status updated successfully',
-                'data' => [
-                    'id' => $checkOut->id,
-                    'is_active' => $checkOut->is_active,
-                ],
-            ]);
-        } catch (\Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to toggle check out status',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
-            ], 500);
-        }
+        return $this->setActiveState(CheckOut::class, $id, null, [
+            'not_found' => 'CheckOut not found',
+            'success' => 'CheckOut status updated successfully',
+            'failed' => 'Failed to toggle check out status',
+        ], [
+            'data' => 'subset',
+            'log' => function ($checkOut) {
+                $this->logActivity('TOGGLE_STATUS', 'CheckOut', "Toggled status for check-out ID {$checkOut->id}");
+            },
+        ]);
     }
 
     /**
@@ -284,35 +251,16 @@ class CheckOutController extends Controller implements HasMiddleware
      */
     public function activate(string $id)
     {
-        try {
-            $checkOut = CheckOut::find($id);
-            if (!$checkOut) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'CheckOut not found',
-                ], 404);
-            }
-            if ($checkOut->is_active) {
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'CheckOut is already active',
-                    'data' => $checkOut,
-                ]);
-            }
-            $checkOut->update(['is_active' => true]);
-            $this->logActivity('ACTIVATE', 'CheckOut', "Activated check-out ID {$checkOut->id}");
-            return response()->json([
-                'status' => 'success',
-                'message' => 'CheckOut activated successfully',
-                'data' => $checkOut,
-            ]);
-        } catch (\Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to activate check out',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
-            ], 500);
-        }
+        return $this->setActiveState(CheckOut::class, $id, true, [
+            'not_found' => 'CheckOut not found',
+            'already' => 'CheckOut is already active',
+            'success' => 'CheckOut activated successfully',
+            'failed' => 'Failed to activate check out',
+        ], [
+            'log' => function ($checkOut) {
+                $this->logActivity('ACTIVATE', 'CheckOut', "Activated check-out ID {$checkOut->id}");
+            },
+        ]);
     }
 
     /**
@@ -320,34 +268,15 @@ class CheckOutController extends Controller implements HasMiddleware
      */
     public function deactivate(string $id)
     {
-        try {
-            $checkOut = CheckOut::find($id);
-            if (!$checkOut) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'CheckOut not found',
-                ], 404);
-            }
-            if (!$checkOut->is_active) {
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'CheckOut is already inactive',
-                    'data' => $checkOut,
-                ]);
-            }
-            $checkOut->update(['is_active' => false]);
-            $this->logActivity('DEACTIVATE', 'CheckOut', "Deactivated check-out ID {$checkOut->id}");
-            return response()->json([
-                'status' => 'success',
-                'message' => 'CheckOut deactivated successfully',
-                'data' => $checkOut,
-            ]);
-        } catch (\Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to deactivate check out',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
-            ], 500);
-        }
+        return $this->setActiveState(CheckOut::class, $id, false, [
+            'not_found' => 'CheckOut not found',
+            'already' => 'CheckOut is already inactive',
+            'success' => 'CheckOut deactivated successfully',
+            'failed' => 'Failed to deactivate check out',
+        ], [
+            'log' => function ($checkOut) {
+                $this->logActivity('DEACTIVATE', 'CheckOut', "Deactivated check-out ID {$checkOut->id}");
+            },
+        ]);
     }
 }

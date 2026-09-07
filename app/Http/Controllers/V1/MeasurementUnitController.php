@@ -14,10 +14,12 @@ use App\Traits\ActivityLogTrait;
 
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
+use App\Traits\TogglesActiveStatus;
 
 class MeasurementUnitController extends Controller implements HasMiddleware
 {
     use ActivityLogTrait;
+    use TogglesActiveStatus;
 
     public static function middleware(): array
     {
@@ -26,6 +28,7 @@ class MeasurementUnitController extends Controller implements HasMiddleware
             new Middleware('permission:Measurement Create|MeasurementUnit Create', only: ['store']),
             new Middleware('permission:Measurement Update|MeasurementUnit Update', only: ['update']),
             new Middleware('permission:Measurement Delete|MeasurementUnit Delete', only: ['destroy']),
+            new Middleware('permission:Measurement Toggle Status', only: ['toggleStatus', 'activate', 'deactivate']),
         ];
     }
     /**
@@ -228,126 +231,60 @@ class MeasurementUnitController extends Controller implements HasMiddleware
 
      public function toggleStatus(string $id)
     {
-        try {
-            $measurementUnit = MeasurementUnit::query()->find($id);
-
-            if (!$measurementUnit) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Measurement unit not found'
-                ], 404);
-            }
-
-            $measurementUnit->is_active = !$measurementUnit->is_active;
-            $measurementUnit->save();
-
-            Log::info('Measurement unit status toggled', [
-                'user_id' => Auth::id(),
-                'measurement_unit_id' => $measurementUnit->id,
-                'new_status' => $measurementUnit->is_active
-            ]);
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Measurement unit status updated successfully',
-                'data' => [
-                    'id' => $measurementUnit->id,
-                    'is_active' => $measurementUnit->is_active
-                ]
-            ]);
-        } catch (\Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to toggle measurement unit status',
-                'error' => $th->getMessage()
-            ], 500);
-        }
+        return $this->setActiveState(MeasurementUnit::class, $id, null, [
+            'not_found' => 'Measurement unit not found',
+            'success' => 'Measurement unit status updated successfully',
+            'failed' => 'Failed to toggle measurement unit status',
+        ], [
+            'data' => 'subset',
+            'raw_error' => true,
+            'log' => function ($measurementUnit) {
+                Log::info('Measurement unit status toggled', [
+                    'user_id' => Auth::id(),
+                    'measurement_unit_id' => $measurementUnit->id,
+                    'new_status' => $measurementUnit->is_active
+                ]);
+            },
+        ]);
     }
 
      public function activate(string $id)
     {
-        try {
-            $measurementUnit = MeasurementUnit::query()->find($id);
-
-            if (! $measurementUnit) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Measurement unit not found',
-                ], 404);
-            }
-
-            if ($measurementUnit->is_active) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Measurement unit is already active',
-                ], 422);
-            }
-
-            $measurementUnit->update(['is_active' => true]);
-
-            Log::info('Measurement unit activated', [
-                'user_id' => Auth::id(),
-                'measurement_unit_id' => $measurementUnit->id,
-            ]);
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Measurement unit activated successfully',
-                'data' => [
-                    'id' => $measurementUnit->id,
-                    'is_active' => $measurementUnit->is_active,
-                ]
-            ]);
-        } catch (
-            \Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to activate measurement unit',
-                'error' => $th->getMessage(),
-            ], 500);
-        }
+        return $this->setActiveState(MeasurementUnit::class, $id, true, [
+            'not_found' => 'Measurement unit not found',
+            'already' => 'Measurement unit is already active',
+            'success' => 'Measurement unit activated successfully',
+            'failed' => 'Failed to activate measurement unit',
+        ], [
+            'already' => 'error',
+            'data' => 'subset',
+            'raw_error' => true,
+            'log' => function ($measurementUnit) {
+                Log::info('Measurement unit activated', [
+                    'user_id' => Auth::id(),
+                    'measurement_unit_id' => $measurementUnit->id,
+                ]);
+            },
+        ]);
     }
 
     public function deactivate(string $id)
     {
-        try {
-            $measurementUnit = MeasurementUnit::query()->find($id);
-
-            if (! $measurementUnit) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Measurement unit not found',
-                ], 404);
-            }
-
-            if (! $measurementUnit->is_active) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Measurement unit is already inactive',
-                ], 422);
-            }
-
-            $measurementUnit->update(['is_active' => false]);
-
-            Log::info('Measurement unit deactivated', [
-                'user_id' => Auth::id(),
-                'measurement_unit_id' => $measurementUnit->id,
-            ]);
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Measurement unit deactivated successfully',
-                'data' => [
-                    'id' => $measurementUnit->id,
-                    'is_active' => $measurementUnit->is_active,
-                ]
-            ]);
-        } catch (\Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to deactivate measurement unit',
-                'error' => $th->getMessage(),
-            ], 500);
-        }
+        return $this->setActiveState(MeasurementUnit::class, $id, false, [
+            'not_found' => 'Measurement unit not found',
+            'already' => 'Measurement unit is already inactive',
+            'success' => 'Measurement unit deactivated successfully',
+            'failed' => 'Failed to deactivate measurement unit',
+        ], [
+            'already' => 'error',
+            'data' => 'subset',
+            'raw_error' => true,
+            'log' => function ($measurementUnit) {
+                Log::info('Measurement unit deactivated', [
+                    'user_id' => Auth::id(),
+                    'measurement_unit_id' => $measurementUnit->id,
+                ]);
+            },
+        ]);
     }
 }

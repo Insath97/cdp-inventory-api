@@ -24,10 +24,12 @@ class StockTransferItemController extends Controller implements HasMiddleware
     public static function middleware(): array
     {
         return [
-            new Middleware('permission:StockTransferItem Index', only: ['index', 'show']),
-            new Middleware('permission:StockTransferItem Create', only: ['store']),
-            new Middleware('permission:StockTransferItem Update', only: ['update']),
-            new Middleware('permission:StockTransferItem Delete', only: ['destroy']),
+            // The parent permission also grants the child: the UI only ever gates the
+            // transfer itself, and saving one posts its items right after the header.
+            new Middleware('permission:StockTransferItem Index|StockTransfer Index', only: ['index', 'show']),
+            new Middleware('permission:StockTransferItem Create|StockTransfer Create', only: ['store']),
+            new Middleware('permission:StockTransferItem Update|StockTransfer Update', only: ['update']),
+            new Middleware('permission:StockTransferItem Delete|StockTransfer Delete', only: ['destroy']),
         ];
     }
 

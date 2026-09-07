@@ -2,9 +2,7 @@
 
 namespace App\Http\Requests;
 
-use Illuminate\Foundation\Http\FormRequest;
-
-class UpdateInventoryDashboardRequest extends FormRequest
+class UpdateInventoryDashboardRequest extends BaseFormRequest
 {
     public function authorize(): bool
     {
@@ -22,25 +20,5 @@ class UpdateInventoryDashboardRequest extends FormRequest
             'description' => 'nullable|string',
             'is_active' => 'nullable|boolean',
         ];
-    }
-
-    protected function failedValidation(\Illuminate\Contracts\Validation\Validator $validator)
-    {
-        $errorMessages = $validator->errors();
-        $fieldErrors = collect($errorMessages->getMessages())->map(function ($messages, $field) {
-            return [
-                'field' => $field,
-                'messages' => $messages,
-            ];
-        })->values();
-
-        $message = $fieldErrors->count() > 1
-            ? 'There are multiple validation errors. Please review the form and correct the issues.'
-            : 'There is an issue with the input for ' . $fieldErrors->first()['field'] . '.';
-
-        throw new \Illuminate\Http\Exceptions\HttpResponseException(response()->json([
-            'message' => $message,
-            'errors' => $fieldErrors,
-        ], 422));
     }
 }

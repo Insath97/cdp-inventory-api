@@ -2,11 +2,7 @@
 
 namespace App\Http\Requests;
 
-use Illuminate\Contracts\Validation\Validator;
-use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Http\Exceptions\HttpResponseException;
-
-class CreateGrnRequest extends FormRequest
+class CreateGrnRequest extends BaseFormRequest
 {
     /**
      * Determine if the user is authorized to make this request.
@@ -33,26 +29,5 @@ class CreateGrnRequest extends FormRequest
             'supplier_bill_number' => 'nullable|string',
             'bill_image' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:5120',
         ];
-    }
-
-    protected function failedValidation(Validator $validator)
-    {
-        $errorMessages = $validator->errors();
-
-        $fieldErrors = collect($errorMessages->getMessages())->map(function ($messages, $field) {
-            return [
-                'field' => $field,
-                'messages' => $messages,
-            ];
-        })->values();
-
-        $message = $fieldErrors->count() > 1
-            ? 'There are multiple validation errors. Please review the form and correct the issues.'
-            : 'There is an issue with the input for ' . $fieldErrors->first()['field'] . '.';
-
-        throw new HttpResponseException(response()->json([
-            'message' => $message,
-            'errors' => $fieldErrors,
-        ], 422));
     }
 }

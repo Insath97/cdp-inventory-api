@@ -19,10 +19,12 @@ class StockTakeItemController extends Controller implements HasMiddleware
     public static function middleware(): array
     {
         return [
-            new Middleware('permission:StockTakeItem Index', only: ['index', 'show']),
-            new Middleware('permission:StockTakeItem Create', only: ['store']),
-            new Middleware('permission:StockTakeItem Update', only: ['update']),
-            new Middleware('permission:StockTakeItem Delete', only: ['destroy']),
+            // The parent permission also grants the child: the UI only ever gates the
+            // stock take itself, and saving one posts its items right after the header.
+            new Middleware('permission:StockTakeItem Index|StockTake Index', only: ['index', 'show']),
+            new Middleware('permission:StockTakeItem Create|StockTake Create', only: ['store']),
+            new Middleware('permission:StockTakeItem Update|StockTake Update', only: ['update']),
+            new Middleware('permission:StockTakeItem Delete|StockTake Delete', only: ['destroy']),
         ];
     }
 

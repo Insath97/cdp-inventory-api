@@ -13,10 +13,12 @@ use Illuminate\Support\Facades\Auth;
 use App\Traits\ActivityLogTrait;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
+use App\Traits\TogglesActiveStatus;
 
 class BrandController extends Controller implements HasMiddleware
 {
     use ActivityLogTrait;
+    use TogglesActiveStatus;
 
     public static function middleware(): array
     {
@@ -25,6 +27,7 @@ class BrandController extends Controller implements HasMiddleware
             new Middleware('permission:Brand Create', only: ['store']),
             new Middleware('permission:Brand Update', only: ['update']),
             new Middleware('permission:Brand Delete', only: ['destroy']),
+            new Middleware('permission:Brand Toggle Status', only: ['toggleStatus', 'activate', 'deactivate']),
         ];
     }
     /**
@@ -225,40 +228,21 @@ class BrandController extends Controller implements HasMiddleware
 
      public function toggleStatus(string $id)
     {
-        try {
-            $brand = Brand::query()->find($id);
-
-            if (!$brand) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Brand not found'
-                ], 404);
-            }
-
-            $brand->is_active = !$brand->is_active;
-            $brand->save();
-
-            Log::info('Brand status toggled', [
-                'user_id' => Auth::id(),
-                'brand_id' => $brand->id,
-                'new_status' => $brand->is_active
-            ]);
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Brand status updated successfully',
-                'data' => [
-                    'id' => $brand->id,
-                    'is_active' => $brand->is_active
-                ]
-            ]);
-        } catch (\Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to toggle brand status',
-                'error' => $th->getMessage()
-            ], 500);
-        }
+        return $this->setActiveState(Brand::class, $id, null, [
+            'not_found' => 'Brand not found',
+            'success' => 'Brand status updated successfully',
+            'failed' => 'Failed to toggle brand status',
+        ], [
+            'data' => 'subset',
+            'raw_error' => true,
+            'log' => function ($brand) {
+                Log::info('Brand status toggled', [
+                    'user_id' => Auth::id(),
+                    'brand_id' => $brand->id,
+                    'new_status' => $brand->is_active
+                ]);
+            },
+        ]);
     }
 
      /**
@@ -266,40 +250,16 @@ class BrandController extends Controller implements HasMiddleware
      */
     public function activate(string $id)
     {
-        try {
-            $brand = Brand::query()->find($id);
-
-            if (!$brand) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Brand not found',
-                ], 404);
-            }
-
-            if ($brand->is_active) {
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'Brand is already active',
-                    'data' => $brand
-                ]);
-            }
-
-            $brand->update(['is_active' => true]);
-
-            $this->logActivity('ACTIVATE', 'Brand', "Activated brand: {$brand->name}");
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Brand activated successfully',
-                'data' => $brand
-            ]);
-        } catch (\Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to activate brand',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
-            ], 500);
-        }
+        return $this->setActiveState(Brand::class, $id, true, [
+            'not_found' => 'Brand not found',
+            'already' => 'Brand is already active',
+            'success' => 'Brand activated successfully',
+            'failed' => 'Failed to activate brand',
+        ], [
+            'log' => function ($brand) {
+                $this->logActivity('ACTIVATE', 'Brand', "Activated brand: {$brand->name}");
+            },
+        ]);
     }
 
     /**
@@ -307,39 +267,15 @@ class BrandController extends Controller implements HasMiddleware
      */
     public function deactivate(string $id)
     {
-        try {
-            $brand = Brand::query()->find($id);
-
-            if (!$brand) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Brand not found',
-                ], 404);
-            }
-
-            if (!$brand->is_active) {
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'Brand is already inactive',
-                    'data' => $brand
-                ]);
-            }
-
-            $brand->update(['is_active' => false]);
-
-            $this->logActivity('DEACTIVATE', 'Brand', "Deactivated brand: {$brand->name}");
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Brand deactivated successfully',
-                'data' => $brand
-            ]);
-        } catch (\Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to deactivate brand',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
-            ], 500);
-        }
+        return $this->setActiveState(Brand::class, $id, false, [
+            'not_found' => 'Brand not found',
+            'already' => 'Brand is already inactive',
+            'success' => 'Brand deactivated successfully',
+            'failed' => 'Failed to deactivate brand',
+        ], [
+            'log' => function ($brand) {
+                $this->logActivity('DEACTIVATE', 'Brand', "Deactivated brand: {$brand->name}");
+            },
+        ]);
     }
 }

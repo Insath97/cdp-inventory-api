@@ -7,14 +7,17 @@ use Illuminate\Http\Request;
 use App\Models\SupplierProduct;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Routing\Controllers\Middleware;
+use Illuminate\Routing\Controllers\HasMiddleware;
 use App\Traits\ActivityLogTrait;
 use App\Http\Requests\CreateSupplierProductsRequest;
 use App\Http\Requests\UpdateSupplierProductsRequest;
 use App\Services\SupplierProductService;
+use App\Traits\TogglesActiveStatus;
 
-class SupplierProductsController extends Controller
+class SupplierProductsController extends Controller implements HasMiddleware
 {
     use ActivityLogTrait;
+    use TogglesActiveStatus;
 
      public static function middleware(): array
     {
@@ -241,42 +244,18 @@ class SupplierProductsController extends Controller
      */
     public function activate(string $id)
     {
-        try {
-            $supplierProduct = SupplierProduct::query()->find($id);
-
-            if (!$supplierProduct) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Supplier product not found',
-                ], 404);
-            }
-
-            if ($supplierProduct->is_active) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Supplier product is already active',
-                ], 422);
-            }
-
-            $supplierProduct->update(['is_active' => true]);
-
-            $this->logActivity('ACTIVATE', 'SupplierProduct', "Activated supplier product: {$supplierProduct->id}");
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Supplier product activated successfully',
-                'data' => [
-                    'id' => $supplierProduct->id,
-                    'is_active' => $supplierProduct->is_active,
-                ]
-            ]);
-        } catch (\Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to activate supplier product',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
-            ], 500);
-        }
+        return $this->setActiveState(SupplierProduct::class, $id, true, [
+            'not_found' => 'Supplier product not found',
+            'already' => 'Supplier product is already active',
+            'success' => 'Supplier product activated successfully',
+            'failed' => 'Failed to activate supplier product',
+        ], [
+            'already' => 'error',
+            'data' => 'subset',
+            'log' => function ($supplierProduct) {
+                $this->logActivity('ACTIVATE', 'SupplierProduct', "Activated supplier product: {$supplierProduct->id}");
+            },
+        ]);
     }
 
     /**
@@ -284,45 +263,16 @@ class SupplierProductsController extends Controller
      */
     public function deactivate(string $id)
     {
-        try {
-            $supplierProduct = SupplierProduct::query()->find($id);
-
-            if (!$supplierProduct) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Supplier product not found',
-                ], 404);
-            }
-
-            if (!$supplierProduct->is_active) {
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'Supplier product is already inactive',
-                    'data' => [
-                        'id' => $supplierProduct->id,
-                        'is_active' => $supplierProduct->is_active,
-                    ]
-                ]);
-            }
-
-            $supplierProduct->update(['is_active' => false]);
-
-            $this->logActivity('DEACTIVATE', 'SupplierProduct', "Deactivated supplier product: {$supplierProduct->id}");
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Supplier product deactivated successfully',
-                'data' => [
-                    'id' => $supplierProduct->id,
-                    'is_active' => $supplierProduct->is_active,
-                ]
-            ]);
-        } catch (\Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to deactivate supplier product',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
-            ], 500);
-        }
+        return $this->setActiveState(SupplierProduct::class, $id, false, [
+            'not_found' => 'Supplier product not found',
+            'already' => 'Supplier product is already inactive',
+            'success' => 'Supplier product deactivated successfully',
+            'failed' => 'Failed to deactivate supplier product',
+        ], [
+            'data' => 'subset',
+            'log' => function ($supplierProduct) {
+                $this->logActivity('DEACTIVATE', 'SupplierProduct', "Deactivated supplier product: {$supplierProduct->id}");
+            },
+        ]);
     }
 }

@@ -18,17 +18,19 @@ use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
+use App\Traits\TogglesActiveStatus;
 
 class ExpiryRecordController extends Controller implements HasMiddleware
 {
     use ActivityLogTrait;
+    use TogglesActiveStatus;
 
     public static function middleware(): array
     {
         return [
             new Middleware('permission:Expiry Record Index', only: ['index', 'show']),
             new Middleware('permission:Expiry Record Create', only: ['store']),
-            new Middleware('permission:Expiry Record Update', only: ['update']),
+            new Middleware('permission:Expiry Record Update', only: ['update', 'activate', 'deactivate']),
             new Middleware('permission:Expiry Record Delete', only: ['destroy']),
         ];
     }
@@ -217,13 +219,8 @@ class ExpiryRecordController extends Controller implements HasMiddleware
                     'url' => '/expiry-records/' . $expiryRecord->id,
                 ]);
 
-                $targets = $recipientService->mergeCollections(
-                    $recipientService->stockControlTeam(),
-                    $recipientService->auditTeam()
-                );
-
-                foreach ($targets as $user) {
-                    $user->notify($notification);
+                foreach ($recipientService->actorAndReportingManager(Auth::user()) as $target) {
+                    $target->notify($notification);
                 }
             }
 
@@ -349,87 +346,41 @@ class ExpiryRecordController extends Controller implements HasMiddleware
 
      public function activate(string $id)
     {
-        try {
-            $expiryRecord = ExpiryRecord::query()->find($id);
-
-            if (! $expiryRecord) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Expiry record not found',
-                ], 404);
-            }
-
-            if ($expiryRecord->is_active) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Expiry record is already active',
-                ], 422);
-            }
-
-            $expiryRecord->update(['is_active' => true]);
-
-            Log::info('Expiry record activated', [
-                'user_id' => Auth::id(),
-                'expiry_record_id' => $expiryRecord->id,
-            ]);
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Expiry record activated successfully',
-                'data' => [
-                    'id' => $expiryRecord->id,
-                    'is_active' => $expiryRecord->is_active,
-                ]
-            ]);
-        } catch (\Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to activate expiry record',
-                'error' => $th->getMessage(),
-            ], 500);
-        }
+        return $this->setActiveState(ExpiryRecord::class, $id, true, [
+            'not_found' => 'Expiry record not found',
+            'already' => 'Expiry record is already active',
+            'success' => 'Expiry record activated successfully',
+            'failed' => 'Failed to activate expiry record',
+        ], [
+            'already' => 'error',
+            'data' => 'subset',
+            'raw_error' => true,
+            'log' => function ($expiryRecord) {
+                Log::info('Expiry record activated', [
+                    'user_id' => Auth::id(),
+                    'expiry_record_id' => $expiryRecord->id,
+                ]);
+            },
+        ]);
     }
 
     public function deactivate(string $id)
     {
-        try {
-            $expiryRecord = ExpiryRecord::query()->find($id);
-
-            if (! $expiryRecord) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Expiry record not found',
-                ], 404);
-            }
-
-            if (!$expiryRecord->is_active) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Expiry record is already inactive',
-                ], 422);
-            }
-
-            $expiryRecord->update(['is_active' => false]);
-
-            Log::info('Expiry record deactivated', [
-                'user_id' => Auth::id(),
-                'expiry_record_id' => $expiryRecord->id,
-            ]);
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Expiry record deactivated successfully',
-                'data' => [
-                    'id' => $expiryRecord->id,
-                    'is_active' => $expiryRecord->is_active,
-                ]
-            ]);
-        } catch (\Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to deactivate expiry record',
-                'error' => $th->getMessage(),
-            ], 500);
-        }
+        return $this->setActiveState(ExpiryRecord::class, $id, false, [
+            'not_found' => 'Expiry record not found',
+            'already' => 'Expiry record is already inactive',
+            'success' => 'Expiry record deactivated successfully',
+            'failed' => 'Failed to deactivate expiry record',
+        ], [
+            'already' => 'error',
+            'data' => 'subset',
+            'raw_error' => true,
+            'log' => function ($expiryRecord) {
+                Log::info('Expiry record deactivated', [
+                    'user_id' => Auth::id(),
+                    'expiry_record_id' => $expiryRecord->id,
+                ]);
+            },
+        ]);
     }
 }

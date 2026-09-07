@@ -16,10 +16,12 @@ use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use App\Traits\TogglesActiveStatus;
 
 class DamageRecordController extends Controller implements HasMiddleware
 {
     use ActivityLogTrait;
+    use TogglesActiveStatus;
 
     public static function middleware(): array
     {
@@ -123,25 +125,8 @@ class DamageRecordController extends Controller implements HasMiddleware
                 'url' => '/damage-records/' . $record->id,
             ]);
 
-            $targets = $recipientService->mergeCollections(
-                $recipientService->inventoryAdmins(),
-                $recipientService->usersByRoles(['Inventory Approver', 'INVENTORY APPROVER'])
-            );
-
-            foreach ($targets as $user) {
-                $user->notify($notification);
-            }
-
-            $reportingManager = $recipientService->reportingManagerOf(Auth::user(), ['Damage Record Update']);
-            if ($reportingManager && !$targets->contains('id', $reportingManager->id)) {
-                $reportingManager->notify($notification);
-            }
-
-            $admins = $recipientService->adminsAndSuperAdmins($record->branch_id);
-            foreach ($admins as $admin) {
-                if ($admin->email) {
-                    \Illuminate\Support\Facades\Mail::to($admin->email)->send(new \App\Mail\DamagedRecordMail($record));
-                }
+            foreach ($recipientService->actorAndReportingManager(Auth::user()) as $target) {
+                $target->notify($notification);
             }
 
             DB::commit();
@@ -264,20 +249,8 @@ class DamageRecordController extends Controller implements HasMiddleware
                     'url' => '/damage-records/' . $record->id,
                 ]);
 
-                $targets = $recipientService->mergeCollections(
-                    $recipientService->inventoryAdmins(),
-                    $recipientService->usersByRoles(['Inventory Approver', 'INVENTORY APPROVER'])
-                );
-
-                foreach ($targets as $user) {
-                    $user->notify($notification);
-                }
-
-                $admins = $recipientService->adminsAndSuperAdmins($record->branch_id);
-                foreach ($admins as $admin) {
-                    if ($admin->email) {
-                        \Illuminate\Support\Facades\Mail::to($admin->email)->send(new \App\Mail\DamagedRecordMail($record));
-                    }
+                foreach ($recipientService->actorAndReportingManager(Auth::user()) as $target) {
+                    $target->notify($notification);
                 }
             } elseif ($movingFromApproved) {
                 $this->reverseStockDeduction($record);
@@ -361,40 +334,16 @@ class DamageRecordController extends Controller implements HasMiddleware
 
     public function activate(string $id)
     {
-        try {
-            $damagedrecord = DamagedRecord::query()->find($id);
-
-            if (!$damagedrecord) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Damage record not found',
-                ], 404);
-            }
-
-            if ($damagedrecord->is_active) {
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'Damage record is already active',
-                    'data' => $damagedrecord
-                ]);
-            }
-
-            $damagedrecord->update(['is_active' => true]);
-
-            $this->logActivity('ACTIVATE', 'DamageRecord', "Activated damage record: {$damagedrecord->damage_number}");
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Damage record activated successfully',
-                'data' => $damagedrecord
-            ]);
-        } catch (\Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to activate damage record',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
-            ], 500);
-        }
+        return $this->setActiveState(DamagedRecord::class, $id, true, [
+            'not_found' => 'Damage record not found',
+            'already' => 'Damage record is already active',
+            'success' => 'Damage record activated successfully',
+            'failed' => 'Failed to activate damage record',
+        ], [
+            'log' => function ($damagedrecord) {
+                $this->logActivity('ACTIVATE', 'DamageRecord', "Activated damage record: {$damagedrecord->damage_number}");
+            },
+        ]);
     }
 
     /**
@@ -402,40 +351,16 @@ class DamageRecordController extends Controller implements HasMiddleware
      */
     public function deactivate(string $id)
     {
-        try {
-            $damagedrecord = DamagedRecord::query()->find($id);
-
-            if (!$damagedrecord) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Damage record not found',
-                ], 404);
-            }
-
-            if (!$damagedrecord->is_active) {
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'Damage record is already inactive',
-                    'data' => $damagedrecord
-                ]);
-            }
-
-            $damagedrecord->update(['is_active' => false]);
-
-            $this->logActivity('DEACTIVATE', 'DamageRecord', "Deactivated damage record: {$damagedrecord->damage_number}");
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Damage record deactivated successfully',
-                'data' => $damagedrecord
-            ]);
-        } catch (\Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to deactivate damage record',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
-            ], 500);
-        }
+        return $this->setActiveState(DamagedRecord::class, $id, false, [
+            'not_found' => 'Damage record not found',
+            'already' => 'Damage record is already inactive',
+            'success' => 'Damage record deactivated successfully',
+            'failed' => 'Failed to deactivate damage record',
+        ], [
+            'log' => function ($damagedrecord) {
+                $this->logActivity('DEACTIVATE', 'DamageRecord', "Deactivated damage record: {$damagedrecord->damage_number}");
+            },
+        ]);
     }
 
     /**
