@@ -13,10 +13,12 @@ use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Support\Facades\DB;
 use App\Traits\ActivityLogTrait;
+use App\Traits\TogglesActiveStatus;
 
 class BranchController extends Controller implements HasMiddleware
 {
     use ActivityLogTrait;
+    use TogglesActiveStatus;
 
     public static function middleware(): array
     {
@@ -222,40 +224,16 @@ class BranchController extends Controller implements HasMiddleware
      */
     public function activate(string $id)
     {
-        try {
-            $branch = Branch::query()->find($id);
-
-            if (!$branch) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Branch not found',
-                ], 404);
-            }
-
-            if ($branch->is_active) {
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'Branch is already active',
-                    'data' => $branch
-                ]);
-            }
-
-            $branch->update(['is_active' => true]);
-
-            $this->logActivity('ACTIVATE', 'Branch', "Activated branch: {$branch->name}");
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Branch activated successfully',
-                'data' => $branch
-            ]);
-        } catch (\Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to activate branch',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
-            ], 500);
-        }
+        return $this->setActiveState(Branch::class, $id, true, [
+            'not_found' => 'Branch not found',
+            'already' => 'Branch is already active',
+            'success' => 'Branch activated successfully',
+            'failed' => 'Failed to activate branch',
+        ], [
+            'log' => function ($branch) {
+                $this->logActivity('ACTIVATE', 'Branch', "Activated branch: {$branch->name}");
+            },
+        ]);
     }
 
     /**
@@ -263,74 +241,30 @@ class BranchController extends Controller implements HasMiddleware
      */
      public function deactivate(string $id)
     {
-        try {
-            $branch = Branch::query()->find($id);
-
-            if (! $branch) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Branch not found',
-                ], 404);
-            }
-
-            if (! $branch->is_active) {
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'Branch is already inactive',
-                    'data' => $branch
-                ]);
-            }
-
-            $branch->update(['is_active' => false]);
-
-            $this->logActivity('DEACTIVATE', 'Branch', "Deactivated branch: {$branch->name}");
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Branch deactivated successfully',
-                'data' => $branch
-            ]);
-        } catch (\Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to deactivate branch',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
-            ], 500);
-        }
+        return $this->setActiveState(Branch::class, $id, false, [
+            'not_found' => 'Branch not found',
+            'already' => 'Branch is already inactive',
+            'success' => 'Branch deactivated successfully',
+            'failed' => 'Failed to deactivate branch',
+        ], [
+            'log' => function ($branch) {
+                $this->logActivity('DEACTIVATE', 'Branch', "Deactivated branch: {$branch->name}");
+            },
+        ]);
     }
 
      public function toggleStatus(string $id)
     {
-        try {
-            $branch = Branch::query()->find($id);
-
-            if (!$branch) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Branch not found'
-                ], 404);
-            }
-
-            $branch->is_active = !$branch->is_active;
-            $branch->save();
-
-            $this->logActivity('TOGGLE_STATUS', 'Branch', "Toggled branch status: {$branch->name}");
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Branch status updated successfully',
-                'data' => [
-                    'id' => $branch->id,
-                    'is_active' => $branch->is_active
-                ]
-            ]);
-        } catch (\Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to toggle branch status',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
-            ], 500);
-        }
+        return $this->setActiveState(Branch::class, $id, null, [
+            'not_found' => 'Branch not found',
+            'success' => 'Branch status updated successfully',
+            'failed' => 'Failed to toggle branch status',
+        ], [
+            'data' => 'subset',
+            'log' => function ($branch) {
+                $this->logActivity('TOGGLE_STATUS', 'Branch', "Toggled branch status: {$branch->name}");
+            },
+        ]);
     }
 }
 

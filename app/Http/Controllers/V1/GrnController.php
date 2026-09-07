@@ -309,11 +309,10 @@ class GrnController extends Controller implements HasMiddleware
                 );
                 $data['bill_image'] = $imagePath;
             } else {
-                if (isset($data['bill_image']) && is_string($data['bill_image']) && !empty($data['bill_image'])) {
-                    $data['bill_image'] = $data['bill_image'];
-                } else {
-                    unset($data['bill_image']);
-                }
+                // A string here is a client-echoed (or attacker-planted) path.
+                // Dropping it keeps the existing bill_image untouched — only
+                // handleFileUpload may ever write this column.
+                unset($data['bill_image']);
             }
 
             unset($data['created_by']);

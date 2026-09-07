@@ -14,10 +14,12 @@ use App\Traits\ActivityLogTrait;
 
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
+use App\Traits\TogglesActiveStatus;
 
 class SupplierController extends Controller implements HasMiddleware
 {
     use ActivityLogTrait;
+    use TogglesActiveStatus;
 
     public static function middleware(): array
     {
@@ -26,6 +28,7 @@ class SupplierController extends Controller implements HasMiddleware
             new Middleware('permission:Supplier Create', only: ['store']),
             new Middleware('permission:Supplier Update', only: ['update']),
             new Middleware('permission:Supplier Delete', only: ['destroy']),
+            new Middleware('permission:Supplier Toggle Status', only: ['toggleStatus', 'activate', 'deactivate']),
         ];
     }
 
@@ -237,126 +240,60 @@ class SupplierController extends Controller implements HasMiddleware
 
     public function toggleStatus(string $id)
     {
-        try {
-            $supplier = Supplier::query()->find($id);
-
-            if (!$supplier) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Supplier not found'
-                ], 404);
-            }
-
-            $supplier->is_active = !$supplier->is_active;
-            $supplier->save();
-
-            Log::info('Supplier status toggled', [
-                'user_id' => Auth::id(),
-                'supplier_id' => $supplier->id,
-                'new_status' => $supplier->is_active
-            ]);
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Supplier status updated successfully',
-                'data' => [
-                    'id' => $supplier->id,
-                    'is_active' => $supplier->is_active
-                ]
-            ]);
-        } catch (\Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to toggle supplier status',
-                'error' => $th->getMessage()
-            ], 500);
-        }
+        return $this->setActiveState(Supplier::class, $id, null, [
+            'not_found' => 'Supplier not found',
+            'success' => 'Supplier status updated successfully',
+            'failed' => 'Failed to toggle supplier status',
+        ], [
+            'data' => 'subset',
+            'raw_error' => true,
+            'log' => function ($supplier) {
+                Log::info('Supplier status toggled', [
+                    'user_id' => Auth::id(),
+                    'supplier_id' => $supplier->id,
+                    'new_status' => $supplier->is_active
+                ]);
+            },
+        ]);
     }
 
      public function activate(string $id)
     {
-        try {
-            $supplier = Supplier::query()->find($id);
-
-            if (! $supplier) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Supplier not found',
-                ], 404);
-            }
-
-            if ($supplier->is_active) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Supplier is already active',
-                ], 422);
-            }
-
-            $supplier->update(['is_active' => true]);
-
-            Log::info('Supplier activated', [
-                'user_id' => Auth::id(),
-                'supplier_id' => $supplier->id,
-            ]);
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Supplier activated successfully',
-                'data' => [
-                    'id' => $supplier->id,
-                    'is_active' => $supplier->is_active,
-                ]
-            ]);
-        } catch (
-            \Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to activate supplier',
-                'error' => $th->getMessage(),
-            ], 500);
-        }
+        return $this->setActiveState(Supplier::class, $id, true, [
+            'not_found' => 'Supplier not found',
+            'already' => 'Supplier is already active',
+            'success' => 'Supplier activated successfully',
+            'failed' => 'Failed to activate supplier',
+        ], [
+            'already' => 'error',
+            'data' => 'subset',
+            'raw_error' => true,
+            'log' => function ($supplier) {
+                Log::info('Supplier activated', [
+                    'user_id' => Auth::id(),
+                    'supplier_id' => $supplier->id,
+                ]);
+            },
+        ]);
     }
 
     public function deactivate(string $id)
     {
-        try {
-            $supplier = Supplier::query()->find($id);
-
-            if (! $supplier) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Supplier not found',
-                ], 404);
-            }
-
-            if (! $supplier->is_active) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Supplier is already inactive',
-                ], 422);
-            }
-
-            $supplier->update(['is_active' => false]);
-
-            Log::info('Supplier deactivated', [
-                'user_id' => Auth::id(),
-                'supplier_id' => $supplier->id,
-            ]);
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Supplier deactivated successfully',
-                'data' => [
-                    'id' => $supplier->id,
-                    'is_active' => $supplier->is_active,
-                ]
-            ]);
-        } catch (\Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to deactivate supplier',
-                'error' => $th->getMessage(),
-            ], 500);
-        }
+        return $this->setActiveState(Supplier::class, $id, false, [
+            'not_found' => 'Supplier not found',
+            'already' => 'Supplier is already inactive',
+            'success' => 'Supplier deactivated successfully',
+            'failed' => 'Failed to deactivate supplier',
+        ], [
+            'already' => 'error',
+            'data' => 'subset',
+            'raw_error' => true,
+            'log' => function ($supplier) {
+                Log::info('Supplier deactivated', [
+                    'user_id' => Auth::id(),
+                    'supplier_id' => $supplier->id,
+                ]);
+            },
+        ]);
     }
 }

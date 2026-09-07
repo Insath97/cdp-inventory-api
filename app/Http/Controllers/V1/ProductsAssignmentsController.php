@@ -21,10 +21,12 @@ use App\Traits\ActivityLogTrait;
 
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
+use App\Traits\TogglesActiveStatus;
 
 class ProductsAssignmentsController extends Controller implements HasMiddleware
 {
     use ActivityLogTrait;
+    use TogglesActiveStatus;
 
     public static function middleware(): array
     {
@@ -33,6 +35,7 @@ class ProductsAssignmentsController extends Controller implements HasMiddleware
             new Middleware('permission:ProductAssignment Create|Product Create|CheckIn Create|CheckOut Create|Grn Create', only: ['store']),
             new Middleware('permission:ProductAssignment Update|Product Update|CheckIn Update|CheckOut Update|Grn Update', only: ['update']),
             new Middleware('permission:ProductAssignment Delete|Product Delete|CheckIn Delete|CheckOut Delete|Grn Delete', only: ['destroy']),
+            new Middleware('permission:ProductAssignment Toggle Status', only: ['toggleStatus', 'activate', 'deactivate']),
         ];
     }
 
@@ -44,7 +47,9 @@ class ProductsAssignmentsController extends Controller implements HasMiddleware
         try {
             $perPage = $request->get('per_page', 15);
 
-            $query = ProductAssignment::query()->with('product');
+            // returnedBy is eager loaded so the Returned view can name who
+            // processed the return without an extra round trip per row.
+            $query = ProductAssignment::query()->with(['product', 'returnedBy']);
 
             $user = Auth::user();
             if ($user && !$user->can('ProductAssignment View All')) {
@@ -87,6 +92,16 @@ class ProductsAssignmentsController extends Controller implements HasMiddleware
                 });
             }
 
+            // status=active shows only what people are currently holding;
+            // status=returned shows what has come back. Omitted means "all",
+            // so existing callers keep the behaviour they had.
+            $status = $request->get('status');
+            if ($status === 'active') {
+                $query->where('is_active', true);
+            } elseif ($status === 'returned') {
+                $query->where('is_active', false);
+            }
+
             if ($request->has('search') ) {
                 $query->search($request->search);
             }
@@ -104,6 +119,17 @@ class ProductsAssignmentsController extends Controller implements HasMiddleware
             }
 
             $productassignments = $query->orderBy('created_at', 'desc')->paginate($perPage);
+
+            // Expose who processed the return as a plain name, then drop the
+            // relation: Eloquent serializes a `returnedBy` relation under the
+            // key `returned_by`, which would otherwise clobber the foreign-key
+            // integer of the same name.
+            $productassignments->getCollection()->transform(function ($assignment) {
+                $assignment->returned_by_name = $assignment->returnedBy?->name;
+                $assignment->unsetRelation('returnedBy');
+
+                return $assignment;
+            });
 
             return response()->json([
                 'status' => 'success',
@@ -203,15 +229,26 @@ class ProductsAssignmentsController extends Controller implements HasMiddleware
                     ], 404);
                 }
 
-                $alreadyAssigned = ProductAssignment::where('grn_item_serial_id', $serial->id)
+                // A serial is one physical unit, so it can only be with one
+                // person at a time. Handing it to someone else automatically
+                // returns it from whoever holds it now — the old row is marked
+                // returned (never deleted), so it drops off the active list
+                // while staying in the unit's assignment history.
+                $currentHolders = ProductAssignment::where('grn_item_serial_id', $serial->id)
                     ->where('is_active', true)
-                    ->exists();
-                if ($alreadyAssigned) {
-                    DB::rollBack();
-                    return response()->json([
-                        'status' => 'error',
-                        'message' => "Serial {$serial->serial_number} is already assigned. Return it before reassigning.",
-                    ], 409);
+                    ->get();
+
+                foreach ($currentHolders as $holder) {
+                    $holder->update([
+                        'is_active' => false,
+                        'returned_at' => now(),
+                        'returned_by' => Auth::id(),
+                    ]);
+                    $this->logActivity(
+                        'AUTO_RETURN',
+                        'Product Assignment',
+                        "Auto-returned {$serial->serial_number} from {$holder->person_name} on reassignment"
+                    );
                 }
 
                 $data['quantity'] = 1;
@@ -459,32 +496,16 @@ class ProductsAssignmentsController extends Controller implements HasMiddleware
      */
     public function activate(string $id)
     {
-        try {
-            $productassignment = ProductAssignment::query()->find($id);
-
-            if (!$productassignment) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Product Assignment not found',
-                ], 404);
-            }
-
-            $productassignment->update(['is_active' => true]);
-
-            $this->logActivity('ACTIVATE', 'Product Assignment', "Activated product assignment: {$productassignment->product_name}");
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Product Assignment activated successfully',
-                'data' => $productassignment->load(['product'])
-            ]);
-        } catch (\Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to activate product assignment',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
-            ], 500);
-        }
+        return $this->setActiveState(ProductAssignment::class, $id, true, [
+            'not_found' => 'Product Assignment not found',
+            'success' => 'Product Assignment activated successfully',
+            'failed' => 'Failed to activate product assignment',
+        ], [
+            'with' => ['product'],
+            'log' => function ($productassignment) {
+                $this->logActivity('ACTIVATE', 'Product Assignment', "Activated product assignment: {$productassignment->product_name}");
+            },
+        ]);
     }
 
     /**

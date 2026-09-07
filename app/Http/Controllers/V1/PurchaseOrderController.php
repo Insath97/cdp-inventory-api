@@ -41,7 +41,7 @@ class PurchaseOrderController extends Controller implements HasMiddleware
         try{
             $perPage = $request->get('per_page', 15);
 
-            $query = PurchaseOrder::query()->with(['supplier', 'creator', 'approver', 'items.variant.product']);
+            $query = PurchaseOrder::query()->with(['supplier', 'creator', 'approver', 'items.product', 'items.variant.product']);
 
             $user = Auth::user();
 
@@ -68,8 +68,9 @@ class PurchaseOrderController extends Controller implements HasMiddleware
             }
 
             if ($request->has('product_id')) {
-                $query->whereHas('items.variant', function ($q) use ($request) {
-                    $q->where('product_id', $request->product_id);
+                $query->whereHas('items', function ($q) use ($request) {
+                    $q->where('product_id', $request->product_id)
+                      ->orWhereHas('variant', fn($vq) => $vq->where('product_id', $request->product_id));
                 });
             }
 
@@ -153,6 +154,9 @@ class PurchaseOrderController extends Controller implements HasMiddleware
                     if (! array_key_exists('quantity_pending', $item)) {
                         $item['quantity_pending'] = $item['quantity_ordered'];
                     }
+                    if (empty($item['variant_id']) && !empty($item['product_id'])) {
+                        $item['variant_id'] = ProductVariant::where('product_id', $item['product_id'])->value('id');
+                    }
                 }
                 $purchaseOrder->items()->createMany($items);
                 unset($item);
@@ -161,7 +165,7 @@ class PurchaseOrderController extends Controller implements HasMiddleware
             }
 
             DB::commit();
-            $purchaseOrder->load(['supplier', 'creator', 'approver', 'items.variant.product']);
+            $purchaseOrder->load(['supplier', 'creator', 'approver', 'items.product', 'items.variant.product']);
 
             $this->logActivity('CREATE', 'PurchaseOrder', "Created purchase order: {$purchaseOrder->id}");
 
@@ -234,7 +238,7 @@ class PurchaseOrderController extends Controller implements HasMiddleware
     public function show(string $id)
     {
         try {
-            $purchaseOrder = PurchaseOrder::with(['supplier', 'creator', 'approver', 'items.variant.product'])->find($id);
+            $purchaseOrder = PurchaseOrder::with(['supplier', 'creator', 'approver', 'items.product', 'items.variant.product'])->find($id);
 
             if (!$purchaseOrder) {
                 return response()->json([
@@ -318,6 +322,9 @@ class PurchaseOrderController extends Controller implements HasMiddleware
                     if (!isset($item['quantity_pending'])) {
                         $item['quantity_pending'] = ($item['quantity_ordered'] ?? 0) - ($item['quantity_received'] ?? 0);
                     }
+                    if (empty($item['variant_id']) && !empty($item['product_id'])) {
+                        $item['variant_id'] = ProductVariant::where('product_id', $item['product_id'])->value('id');
+                    }
                     if (!empty($item['id'])) {
                         $poItem = PurchaseOrderItem::where('purchase_order_id', $purchaseOrder->id)->find($item['id']);
                         if ($poItem) {
@@ -338,7 +345,7 @@ class PurchaseOrderController extends Controller implements HasMiddleware
 
             DB::commit();
 
-            $purchaseOrder->refresh()->load(['supplier', 'creator', 'approver', 'items.variant.product']);
+            $purchaseOrder->refresh()->load(['supplier', 'creator', 'approver', 'items.product', 'items.variant.product']);
 
             // Send notification to PO creator if PO status changed to approved
             if (isset($data['status']) && $data['status'] === 'approved' && $oldStatus !== 'approved') {
@@ -541,16 +548,14 @@ class PurchaseOrderController extends Controller implements HasMiddleware
      */
     protected function linkSupplierProducts(PurchaseOrder $purchaseOrder, array $items): void
     {
-        $variantIds = collect($items)->pluck('variant_id')->filter()->unique();
-        if ($variantIds->isEmpty()) {
-            return;
-        }
-
-        $productIdsByVariant = ProductVariant::whereIn('id', $variantIds)->pluck('product_id', 'id');
         $service = app(SupplierProductService::class);
+        $variantIds = collect($items)->pluck('variant_id')->filter()->unique();
+        $productIdsByVariant = $variantIds->isNotEmpty()
+            ? ProductVariant::whereIn('id', $variantIds)->pluck('product_id', 'id')
+            : collect();
 
         foreach ($items as $item) {
-            $productId = $productIdsByVariant->get($item['variant_id'] ?? null);
+            $productId = $item['product_id'] ?? $productIdsByVariant->get($item['variant_id'] ?? null);
             if (!$productId) {
                 continue;
             }

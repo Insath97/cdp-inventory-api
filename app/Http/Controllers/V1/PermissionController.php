@@ -12,15 +12,18 @@ use Spatie\Permission\Models\Permission;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
+use App\Traits\TogglesActiveStatus;
 
 class PermissionController extends Controller implements HasMiddleware
 {
+    use TogglesActiveStatus;
+
     public static function middleware(): array
     {
         return [
             new Middleware('permission:Permission Index', only: ['index', 'show']),
             new Middleware('permission:Permission Create', only: ['store']),
-            new Middleware('permission:Permission Update', only: ['update']),
+            new Middleware('permission:Permission Update', only: ['update', 'activate']),
             new Middleware('permission:Permission Delete', only: ['destroy']),
         ];
     }
@@ -238,45 +241,21 @@ class PermissionController extends Controller implements HasMiddleware
 
      public function activate(string $id)
     {
-        try {
-            $permission = Permission::query()->find($id);
-
-            if (! $permission) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Permission not found',
-                ], 404);
-            }
-
-            if ($permission->is_active) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Permission is already active',
-                ], 422);
-            }
-
-            $permission->update(['is_active' => true]);
-
-            Log::info('Permission activated', [
-                'user_id' => Auth::id(),
-                'permission_id' => $permission->id,
-            ]);
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Permission activated successfully',
-                'data' => [
-                    'id' => $permission->id,
-                    'is_active' => $permission->is_active,
-                ]
-            ]);
-        } catch (
-            \Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to activate permission',
-                'error' => $th->getMessage(),
-            ], 500);
-        }
+        return $this->setActiveState(Permission::class, $id, true, [
+            'not_found' => 'Permission not found',
+            'already' => 'Permission is already active',
+            'success' => 'Permission activated successfully',
+            'failed' => 'Failed to activate permission',
+        ], [
+            'already' => 'error',
+            'data' => 'subset',
+            'raw_error' => true,
+            'log' => function ($permission) {
+                Log::info('Permission activated', [
+                    'user_id' => Auth::id(),
+                    'permission_id' => $permission->id,
+                ]);
+            },
+        ]);
     }
 }

@@ -9,8 +9,9 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 use App\Services\BulkImportService;
 use App\Jobs\ImportCsvJob;
 use Illuminate\Routing\Controllers\Middleware;
+use Illuminate\Routing\Controllers\HasMiddleware;
 
-class BulkImportController extends Controller
+class BulkImportController extends Controller implements HasMiddleware
 {
     public static function middleware(): array
     {

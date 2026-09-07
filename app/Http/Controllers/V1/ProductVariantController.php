@@ -13,10 +13,12 @@ use App\Traits\ActivityLogTrait;
 use App\Http\Controllers\Controller;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
+use App\Traits\TogglesActiveStatus;
 
 class ProductVariantController extends Controller implements HasMiddleware
 {
     use ActivityLogTrait;
+    use TogglesActiveStatus;
 
     /**
      * Define the middleware for permissions.
@@ -232,40 +234,21 @@ class ProductVariantController extends Controller implements HasMiddleware
      */
     public function toggleStatus(string $id)
     {
-        try {
-            $variant = ProductVariant::query()->find($id);
-
-            if (!$variant) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Product variant not found'
-                ], 404);
-            }
-
-            $variant->is_active = !$variant->is_active;
-            $variant->save();
-
-            Log::info('Product variant status toggled', [
-                'user_id' => Auth::id(),
-                'variant_id' => $variant->id,
-                'new_status' => $variant->is_active
-            ]);
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Product variant status updated successfully',
-                'data' => [
-                    'id' => $variant->id,
-                    'is_active' => $variant->is_active
-                ]
-            ]);
-        } catch (\Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to toggle product variant status',
-                'error' => $th->getMessage()
-            ], 500);
-        }
+        return $this->setActiveState(ProductVariant::class, $id, null, [
+            'not_found' => 'Product variant not found',
+            'success' => 'Product variant status updated successfully',
+            'failed' => 'Failed to toggle product variant status',
+        ], [
+            'data' => 'subset',
+            'raw_error' => true,
+            'log' => function ($variant) {
+                Log::info('Product variant status toggled', [
+                    'user_id' => Auth::id(),
+                    'variant_id' => $variant->id,
+                    'new_status' => $variant->is_active
+                ]);
+            },
+        ]);
     }
 
     /**
@@ -273,39 +256,18 @@ class ProductVariantController extends Controller implements HasMiddleware
      */
     public function activate(string $id)
     {
-        try {
-            $variant = ProductVariant::query()->find($id);
-
-            if (!$variant) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Product variant not found',
-                ], 404);
-            }
-
-            if ($variant->is_active) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Product variant is already active',
-                ], 422);
-            }
-
-            $variant->update(['is_active' => true]);
-
-            $this->logActivity('ACTIVATE', 'ProductVariant', "Activated product variant: {$variant->sku}");
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Product variant activated successfully',
-                'data' => $variant->load('product')
-            ]);
-        } catch (\Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to activate product variant',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
-            ], 500);
-        }
+        return $this->setActiveState(ProductVariant::class, $id, true, [
+            'not_found' => 'Product variant not found',
+            'already' => 'Product variant is already active',
+            'success' => 'Product variant activated successfully',
+            'failed' => 'Failed to activate product variant',
+        ], [
+            'already' => 'error',
+            'with' => 'product',
+            'log' => function ($variant) {
+                $this->logActivity('ACTIVATE', 'ProductVariant', "Activated product variant: {$variant->sku}");
+            },
+        ]);
     }
 
     /**
@@ -313,38 +275,17 @@ class ProductVariantController extends Controller implements HasMiddleware
      */
     public function deactivate(string $id)
     {
-        try {
-            $variant = ProductVariant::query()->find($id);
-
-            if (!$variant) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Product variant not found',
-                ], 404);
-            }
-
-            if (!$variant->is_active) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Product variant is already inactive',
-                ], 422);
-            }
-
-            $variant->update(['is_active' => false]);
-
-            $this->logActivity('DEACTIVATE', 'ProductVariant', "Deactivated product variant: {$variant->sku}");
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Product variant deactivated successfully',
-                'data' => $variant->load('product')
-            ]);
-        } catch (\Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to deactivate product variant',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
-            ], 500);
-        }
+        return $this->setActiveState(ProductVariant::class, $id, false, [
+            'not_found' => 'Product variant not found',
+            'already' => 'Product variant is already inactive',
+            'success' => 'Product variant deactivated successfully',
+            'failed' => 'Failed to deactivate product variant',
+        ], [
+            'already' => 'error',
+            'with' => 'product',
+            'log' => function ($variant) {
+                $this->logActivity('DEACTIVATE', 'ProductVariant', "Deactivated product variant: {$variant->sku}");
+            },
+        ]);
     }
 }

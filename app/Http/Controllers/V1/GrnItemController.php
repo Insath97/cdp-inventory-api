@@ -19,17 +19,19 @@ use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
+use App\Traits\TogglesActiveStatus;
 
 class GrnItemController extends Controller implements HasMiddleware
 {
     use ActivityLogTrait;
+    use TogglesActiveStatus;
 
     public static function middleware(): array
     {
         return [
             new Middleware('permission:Grn Item Index|Grn Index|Product Index|ProductAssignment Index', only: ['index', 'show', 'searchAvailableSerials', 'resolveSerial']),
             new Middleware('permission:Grn Item Create|Grn Create', only: ['store', 'nextSerial']),
-            new Middleware('permission:Grn Item Update|Grn Update', only: ['update']),
+            new Middleware('permission:Grn Item Update|Grn Update', only: ['update', 'activate', 'deactivate']),
             new Middleware('permission:Grn Item Delete|Grn Delete', only: ['destroy']),
         ];
     }
@@ -295,8 +297,16 @@ class GrnItemController extends Controller implements HasMiddleware
                 ->values();
             unset($data['serial_numbers']);
 
-            if ($serialNumbers->isNotEmpty() && !empty($data['product_variant_id'])) {
-                $existing = GrnItemSerial::where('product_variant_id', $data['product_variant_id'])
+            if ($serialNumbers->isNotEmpty()) {
+                // Products no longer carry variants, so scope the duplicate
+                // check by variant when one was sent (legacy rows) and by
+                // product otherwise.
+                $existing = GrnItemSerial::query()
+                    ->when(
+                        !empty($data['product_variant_id']),
+                        fn ($q) => $q->where('product_variant_id', $data['product_variant_id']),
+                        fn ($q) => $q->where('product_id', $data['product_id'] ?? 0)
+                    )
                     ->whereIn('serial_number', $serialNumbers)
                     ->pluck('serial_number');
                 if ($existing->isNotEmpty()) {
@@ -393,34 +403,7 @@ class GrnItemController extends Controller implements HasMiddleware
             // Auto-generate PRN for short delivery
             $qtyOrdered = floatval($grnItem->quantity_ordered ?? 0);
             if ($qty < $qtyOrdered && $grn) {
-                $shortfall = $qtyOrdered - $qty;
-                $prn = \App\Models\PurchaseReturnNote::firstOrCreate(
-                    ['grn_id' => $grn->id],
-                    [
-                        'supplier_id' => $grn->supplier_id,
-                        'branch_id' => $grn->branch_id,
-                        'created_by' => Auth::id() ?? $grn->received_by,
-                        'prn_number' => 'PRN-' . date('YmdHis') . '-' . rand(1000, 9999),
-                        'return_date' => now()->toDateString(),
-                        'reason' => 'Short Delivery',
-                        'status' => 'pending',
-                    ]
-                );
-
-                \App\Models\PurchaseReturnNoteItem::updateOrCreate(
-                    [
-                        'purchase_return_note_id' => $prn->id,
-                        'grn_item_id' => $grnItem->id,
-                    ],
-                    [
-                        'product_id' => $grnItem->product_id,
-                        'product_variant_id' => $grnItem->product_variant_id,
-                        'unit_id' => $grnItem->unit_id,
-                        'quantity_returned' => $shortfall,
-                        'unit_price' => $grnItem->unit_price,
-                        'reason' => 'Short Delivery',
-                    ]
-                );
+                $this->recordShortDeliveryPrn($grn, $grnItem, $qtyOrdered - $qty);
             }
 
             DB::commit();
@@ -595,37 +578,15 @@ class GrnItemController extends Controller implements HasMiddleware
             $grn = $grnItem->grn;
 
             if ($qtyReceived < $qtyOrdered && $grn) {
-                $shortfall = $qtyOrdered - $qtyReceived;
-                $prn = \App\Models\PurchaseReturnNote::firstOrCreate(
-                    ['grn_id' => $grn->id],
-                    [
-                        'supplier_id' => $grn->supplier_id,
-                        'branch_id' => $grn->branch_id,
-                        'created_by' => Auth::id() ?? $grn->received_by,
-                        'prn_number' => 'PRN-' . date('YmdHis') . '-' . rand(1000, 9999),
-                        'return_date' => now()->toDateString(),
-                        'reason' => 'Short Delivery',
-                        'status' => 'pending',
-                    ]
-                );
-
-                \App\Models\PurchaseReturnNoteItem::updateOrCreate(
-                    [
-                        'purchase_return_note_id' => $prn->id,
-                        'grn_item_id' => $grnItem->id,
-                    ],
-                    [
-                        'product_id' => $grnItem->product_id,
-                        'product_variant_id' => $grnItem->product_variant_id,
-                        'unit_id' => $grnItem->unit_id,
-                        'quantity_returned' => $shortfall,
-                        'unit_price' => $grnItem->unit_price,
-                        'reason' => 'Short Delivery',
-                    ]
-                );
+                $this->recordShortDeliveryPrn($grn, $grnItem, $qtyOrdered - $qtyReceived);
             } else {
+                // `reason` lives on the parent purchase_return_notes row, not
+                // on the item — filter through the relation so this doesn't
+                // query a column purchase_return_note_items has never had.
                 $prnItem = \App\Models\PurchaseReturnNoteItem::where('grn_item_id', $grnItem->id)
-                            ->where('reason', 'Short Delivery')
+                            ->whereHas('purchaseReturnNote', function ($q) {
+                                $q->where('reason', 'Short Delivery');
+                            })
                             ->first();
                 if ($prnItem) {
                     $prnId = $prnItem->purchase_return_note_id;
@@ -663,6 +624,45 @@ class GrnItemController extends Controller implements HasMiddleware
                 'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
+    }
+
+    /**
+     * Auto-generate (or refresh) the short-delivery PRN entry for a GRN item.
+     *
+     * Runs inside the caller's open DB transaction (store()/update() both wrap
+     * it in DB::beginTransaction()/DB::commit()), so all writes here commit or
+     * roll back together with the GRN item itself.
+     */
+    private function recordShortDeliveryPrn(Grn $grn, GrnItem $grnItem, float $shortfall): void
+    {
+        $prn = \App\Models\PurchaseReturnNote::firstOrCreate(
+            ['grn_id' => $grn->id],
+            [
+                'supplier_id' => $grn->supplier_id,
+                'branch_id' => $grn->branch_id,
+                'created_by' => Auth::id() ?? $grn->received_by,
+                'prn_number' => 'PRN-' . date('YmdHis') . '-' . rand(1000, 9999),
+                'return_date' => now()->toDateString(),
+                'reason' => 'Short Delivery',
+                'status' => 'pending',
+            ]
+        );
+
+        \App\Models\PurchaseReturnNoteItem::updateOrCreate(
+            [
+                'purchase_return_note_id' => $prn->id,
+                'grn_item_id' => $grnItem->id,
+            ],
+            [
+                'product_id' => $grnItem->product_id,
+                'product_variant_id' => $grnItem->product_variant_id,
+                'unit_id' => $grnItem->unit_id,
+                'quantity_returned' => $shortfall,
+                'unit_price' => $grnItem->unit_price,
+                // No 'reason' here — it belongs to the PRN above, and the item
+                // has neither the column nor the fillable entry for it.
+            ]
+        );
     }
 
     /**
@@ -735,97 +735,40 @@ class GrnItemController extends Controller implements HasMiddleware
 
      public function activate(string $id)
     {
-        try {
-            $grnItem = GrnItem::query()->find($id);
-
-            if (! $grnItem) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'GRN item not found',
-                ], 404);
-            }
-
-            if ($grnItem->is_active) {
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'GRN item is already active',
-                    'data' => [
-                        'id' => $grnItem->id,
-                        'is_active' => $grnItem->is_active,
-                    ],
+        return $this->setActiveState(GrnItem::class, $id, true, [
+            'not_found' => 'GRN item not found',
+            'already' => 'GRN item is already active',
+            'success' => 'GRN item activated successfully',
+            'failed' => 'Failed to activate GRN item',
+        ], [
+            'data' => 'subset',
+            'raw_error' => true,
+            'log' => function ($grnItem) {
+                Log::info('GRN item activated', [
+                    'user_id' => Auth::id(),
+                    'grn_item_id' => $grnItem->id,
                 ]);
-            }
-
-            $grnItem->update(['is_active' => true]);
-
-            Log::info('GRN item activated', [
-                'user_id' => Auth::id(),
-                'grn_item_id' => $grnItem->id,
-            ]);
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'GRN item activated successfully',
-                'data' => [
-                    'id' => $grnItem->id,
-                    'is_active' => $grnItem->is_active,
-                ]
-            ]);
-        } catch (
-            \Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to activate GRN item',
-                'error' => $th->getMessage(),
-            ], 500);
-        }
+            },
+        ]);
     }
 
 
     public function deactivate(string $id)
     {
-        try {
-            $grnItem = GrnItem::query()->find($id);
-
-            if (! $grnItem) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'GRN item not found',
-                ], 404);
-            }
-
-            if (! $grnItem->is_active) {
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'GRN item is already inactive',
-                    'data' => [
-                        'id' => $grnItem->id,
-                        'is_active' => $grnItem->is_active,
-                    ],
+        return $this->setActiveState(GrnItem::class, $id, false, [
+            'not_found' => 'GRN item not found',
+            'already' => 'GRN item is already inactive',
+            'success' => 'GRN item deactivated successfully',
+            'failed' => 'Failed to deactivate GRN item',
+        ], [
+            'data' => 'subset',
+            'raw_error' => true,
+            'log' => function ($grnItem) {
+                Log::info('GRN item deactivated', [
+                    'user_id' => Auth::id(),
+                    'grn_item_id' => $grnItem->id,
                 ]);
-            }
-
-            $grnItem->update(['is_active' => false]);
-
-            Log::info('GRN item deactivated', [
-                'user_id' => Auth::id(),
-                'grn_item_id' => $grnItem->id,
-            ]);
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'GRN item deactivated successfully',
-                'data' => [
-                    'id' => $grnItem->id,
-                    'is_active' => $grnItem->is_active,
-                ]
-            ]);
-        } catch (\Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to deactivate GRN item',
-                'error' => $th->getMessage(),
-            ], 500);
-        }
+            },
+        ]);
     }
 }

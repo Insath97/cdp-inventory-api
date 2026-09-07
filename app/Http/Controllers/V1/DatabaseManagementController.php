@@ -8,8 +8,9 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Illuminate\Routing\Controllers\Middleware;
+use Illuminate\Routing\Controllers\HasMiddleware;
 
-class DatabaseManagementController extends Controller
+class DatabaseManagementController extends Controller implements HasMiddleware
 {
     public static function middleware(): array
     {

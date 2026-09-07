@@ -16,6 +16,8 @@ class GrnItem extends Model
         'quantity_ordered',
         'quantity_received',
         'unit_price',
+        'discount_type',
+        'discount_value',
         'expiry_date',
         'batch_number',
     ];
@@ -24,8 +26,35 @@ class GrnItem extends Model
         'quantity_ordered' => 'decimal:2',
         'quantity_received' => 'decimal:2',
         'unit_price' => 'decimal:2',
+        'discount_value' => 'decimal:2',
         'expiry_date' => 'date:Y-m-d',
     ];
+
+    /** Line subtotal before any discount. */
+    public function getSubtotalAttribute(): float
+    {
+        return (float) $this->quantity_received * (float) $this->unit_price;
+    }
+
+    /** The discount resolved to rupees, whichever way it was entered. */
+    public function getDiscountAmountAttribute(): float
+    {
+        $subtotal = $this->subtotal;
+        $value = (float) $this->discount_value;
+        if ($value <= 0) {
+            return 0.0;
+        }
+
+        $amount = $this->discount_type === 'amount' ? $value : $subtotal * $value / 100;
+
+        return (float) min(max($amount, 0), $subtotal);
+    }
+
+    /** What this line actually costs after its discount. */
+    public function getLineTotalAttribute(): float
+    {
+        return $this->subtotal - $this->discount_amount;
+    }
 
     public function scopeSearch($query, $search)
     {

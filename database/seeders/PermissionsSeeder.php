@@ -34,6 +34,15 @@ class PermissionsSeeder extends Seeder
             ['name' => 'User Delete', 'group_name' => 'User Management Permissions'],
             ['name' => 'User Toggle Status', 'group_name' => 'User Management Permissions'],
             ['name' => 'User View All', 'group_name' => 'User Management Permissions'],
+            ['name' => 'User Reset Password', 'group_name' => 'User Management Permissions'],
+
+            /* User escalation — deliberately its own group, excluded from the
+               Admin bulk-grant below, so only Super Admin holds these unless
+               they are granted explicitly. UserController checks these names
+               inline for privileged operations. */
+            ['name' => 'Assign Super Admin Role', 'group_name' => 'User Escalation Permissions'],
+            ['name' => 'Update User Type', 'group_name' => 'User Escalation Permissions'],
+            ['name' => 'Delete Any User', 'group_name' => 'User Escalation Permissions'],
 
             /* Branch Management */
             ['name' => 'Branch Index', 'group_name' => 'Branch Management Permissions'],
@@ -350,7 +359,8 @@ class PermissionsSeeder extends Seeder
                 return true;
             }
             return !in_array($permission->group_name, [
-                'Access Management Permissions'
+                'Access Management Permissions',
+                'User Escalation Permissions'
             ]);
         });
         $adminRoles = ['ADMIN', 'Admin'];
@@ -381,6 +391,25 @@ class PermissionsSeeder extends Seeder
             ];
 
             if (in_array($group, $operationalGroups)) {
+                return true;
+            }
+
+            // GRN receiving flow: the manager owns goods receiving end-to-end.
+            // The GRN screen also creates pending-setup products inline
+            // (POST /products), completes their details afterwards
+            // (PUT /products/{id}, PUT /product-variants/{id}) and links them
+            // to the supplier (POST /supplier-products), so those specific
+            // write permissions are part of the flow — without them the GRN
+            // form 403s mid-save. Deletes stay admin-only.
+            $grnFlowPermissions = [
+                'Grn Index', 'Grn Show', 'Grn Create', 'Grn Update', 'Grn Toggle Status',
+                'Grn Item Index', 'Grn Item Show', 'Grn Item Create', 'Grn Item Update',
+                'Product Create', 'Product Update',
+                'Product Variant Update',
+                'SupplierProduct Create',
+            ];
+
+            if (in_array($name, $grnFlowPermissions)) {
                 return true;
             }
 

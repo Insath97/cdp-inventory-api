@@ -142,11 +142,10 @@ Route::middleware(['auth:api', 'throttle:300,1'])->prefix('v1')->group(function 
     Route::patch('products/{id}/activate', [ProductController::class, 'activate']);
     Route::patch('products/{id}/deactivate', [ProductController::class, 'deactivate']);
 
-    // Product Variants
-    Route::apiResource('product-variants', ProductVariantController::class);
-    Route::patch('product-variants/{id}/toggle-status', [ProductVariantController::class, 'toggleStatus']);
-    Route::patch('product-variants/{id}/activate', [ProductVariantController::class, 'activate']);
-    Route::patch('product-variants/{id}/deactivate', [ProductVariantController::class, 'deactivate']);
+    // Product Variants — the variant layer is retired: SKU/barcode now live on
+    // the product itself. These stay read-only so historical documents that
+    // reference a variant id keep resolving; nothing creates variants anymore.
+    Route::apiResource('product-variants', ProductVariantController::class)->only(['index', 'show']);
 
     // Purchase Orders
     Route::apiResource('purchase-orders', \App\Http\Controllers\V1\PurchaseOrderController::class);
@@ -258,13 +257,7 @@ Route::middleware(['auth:api', 'throttle:300,1'])->prefix('v1')->group(function 
 
     // Stock Takes
     Route::apiResource('stock-takes', \App\Http\Controllers\V1\StockTakeController::class);
-    Route::patch('stock-takes/{id}/toggle-status', [\App\Http\Controllers\V1\StockTakeController::class, 'toggleStatus']);
-    Route::patch('stock-takes/{id}/activate', [\App\Http\Controllers\V1\StockTakeController::class, 'activate']);
-    Route::patch('stock-takes/{id}/deactivate', [\App\Http\Controllers\V1\StockTakeController::class, 'deactivate']);
 
     // Stock Take Items
     Route::apiResource('stock-take-items', \App\Http\Controllers\V1\StockTakeItemController::class);
-    Route::patch('stock-take-items/{id}/toggle-status', [\App\Http\Controllers\V1\StockTakeItemController::class, 'toggleStatus']);
-    Route::patch('stock-take-items/{id}/activate', [\App\Http\Controllers\V1\StockTakeItemController::class, 'activate']);
-    Route::patch('stock-take-items/{id}/deactivate', [\App\Http\Controllers\V1\StockTakeItemController::class, 'deactivate']);
 });

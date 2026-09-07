@@ -14,10 +14,12 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Routing\Controllers\HasMiddleware;
+use App\Traits\TogglesActiveStatus;
 
 class CheckInController extends Controller implements HasMiddleware
 {
     use ActivityLogTrait;
+    use TogglesActiveStatus;
 
     public static function middleware(): array
     {
@@ -249,32 +251,16 @@ class CheckInController extends Controller implements HasMiddleware
      */
     public function toggleStatus(string $id)
     {
-        try {
-            $checkIn = CheckIn::find($id);
-            if (!$checkIn) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'CheckIn not found',
-                ], 404);
-            }
-            $checkIn->is_active = !$checkIn->is_active;
-            $checkIn->save();
-            $this->logActivity('TOGGLE_STATUS', 'CheckIn', "Toggled status for check-in ID {$checkIn->id}");
-            return response()->json([
-                'status' => 'success',
-                'message' => 'CheckIn status updated successfully',
-                'data' => [
-                    'id' => $checkIn->id,
-                    'is_active' => $checkIn->is_active,
-                ],
-            ]);
-        } catch (\Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to toggle check in status',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
-            ], 500);
-        }
+        return $this->setActiveState(CheckIn::class, $id, null, [
+            'not_found' => 'CheckIn not found',
+            'success' => 'CheckIn status updated successfully',
+            'failed' => 'Failed to toggle check in status',
+        ], [
+            'data' => 'subset',
+            'log' => function ($checkIn) {
+                $this->logActivity('TOGGLE_STATUS', 'CheckIn', "Toggled status for check-in ID {$checkIn->id}");
+            },
+        ]);
     }
 
     /**
@@ -282,35 +268,16 @@ class CheckInController extends Controller implements HasMiddleware
      */
     public function activate(string $id)
     {
-        try {
-            $checkIn = CheckIn::find($id);
-            if (!$checkIn) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'CheckIn not found',
-                ], 404);
-            }
-            if ($checkIn->is_active) {
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'CheckIn is already active',
-                    'data' => $checkIn,
-                ]);
-            }
-            $checkIn->update(['is_active' => true]);
-            $this->logActivity('ACTIVATE', 'CheckIn', "Activated check-in ID {$checkIn->id}");
-            return response()->json([
-                'status' => 'success',
-                'message' => 'CheckIn activated successfully',
-                'data' => $checkIn,
-            ]);
-        } catch (\Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to activate check in',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
-            ], 500);
-        }
+        return $this->setActiveState(CheckIn::class, $id, true, [
+            'not_found' => 'CheckIn not found',
+            'already' => 'CheckIn is already active',
+            'success' => 'CheckIn activated successfully',
+            'failed' => 'Failed to activate check in',
+        ], [
+            'log' => function ($checkIn) {
+                $this->logActivity('ACTIVATE', 'CheckIn', "Activated check-in ID {$checkIn->id}");
+            },
+        ]);
     }
 
     /**
@@ -318,34 +285,15 @@ class CheckInController extends Controller implements HasMiddleware
      */
     public function deactivate(string $id)
     {
-        try {
-            $checkIn = CheckIn::find($id);
-            if (!$checkIn) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'CheckIn not found',
-                ], 404);
-            }
-            if (!$checkIn->is_active) {
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'CheckIn is already inactive',
-                    'data' => $checkIn,
-                ]);
-            }
-            $checkIn->update(['is_active' => false]);
-            $this->logActivity('DEACTIVATE', 'CheckIn', "Deactivated check-in ID {$checkIn->id}");
-            return response()->json([
-                'status' => 'success',
-                'message' => 'CheckIn deactivated successfully',
-                'data' => $checkIn,
-            ]);
-        } catch (\Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to deactivate check in',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
-            ], 500);
-        }
+        return $this->setActiveState(CheckIn::class, $id, false, [
+            'not_found' => 'CheckIn not found',
+            'already' => 'CheckIn is already inactive',
+            'success' => 'CheckIn deactivated successfully',
+            'failed' => 'Failed to deactivate check in',
+        ], [
+            'log' => function ($checkIn) {
+                $this->logActivity('DEACTIVATE', 'CheckIn', "Deactivated check-in ID {$checkIn->id}");
+            },
+        ]);
     }
 }

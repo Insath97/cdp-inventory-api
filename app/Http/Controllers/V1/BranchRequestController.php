@@ -27,6 +27,7 @@ class BranchRequestController extends Controller implements HasMiddleware
             new Middleware('permission:Branch Request Create', only: ['store']),
             new Middleware('permission:Branch Request Update', only: ['update']),
             new Middleware('permission:Branch Request Delete', only: ['destroy']),
+            new Middleware('permission:Branch Request Toggle Status', only: ['toggleStatus', 'activate', 'deactivate']),
         ];
     }
 

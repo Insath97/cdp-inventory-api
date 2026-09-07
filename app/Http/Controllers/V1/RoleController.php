@@ -14,17 +14,19 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
 use App\Traits\ActivityLogTrait;
+use App\Traits\TogglesActiveStatus;
 
 class RoleController extends Controller implements HasMiddleware
 {
     use ActivityLogTrait;
+    use TogglesActiveStatus;
 
     public static function middleware(): array
     {
         return [
             new Middleware('permission:Role Index', only: ['index', 'show']),
             new Middleware('permission:Role Create', only: ['store']),
-            new Middleware('permission:Role Update', only: ['update']),
+            new Middleware('permission:Role Update', only: ['update', 'activate', 'deactivate']),
             new Middleware('permission:Role Delete', only: ['destroy']),
         ];
     }
@@ -267,46 +269,22 @@ class RoleController extends Controller implements HasMiddleware
 
      public function activate(string $id)
     {
-        try {
-            $role = Role::query()->find($id);
-
-            if (! $role) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Role not found',
-                ], 404);
-            }
-
-            if ($role->is_active) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Role is already active',
-                ], 422);
-            }
-
-            $role->update(['is_active' => true]);
-
-            Log::info('Role activated', [
-                'user_id' => Auth::id(),
-                'role_id' => $role->id,
-            ]);
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Role activated successfully',
-                'data' => [
-                    'id' => $role->id,
-                    'is_active' => $role->is_active,
-                ]
-            ]);
-        } catch (
-            \Throwable $th) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to activate role',
-                'error' => $th->getMessage(),
-            ], 500);
-        }
+        return $this->setActiveState(Role::class, $id, true, [
+            'not_found' => 'Role not found',
+            'already' => 'Role is already active',
+            'success' => 'Role activated successfully',
+            'failed' => 'Failed to activate role',
+        ], [
+            'already' => 'error',
+            'data' => 'subset',
+            'raw_error' => true,
+            'log' => function ($role) {
+                Log::info('Role activated', [
+                    'user_id' => Auth::id(),
+                    'role_id' => $role->id,
+                ]);
+            },
+        ]);
     }
 
 
