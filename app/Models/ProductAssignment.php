@@ -22,6 +22,7 @@ class ProductAssignment extends Model
         'grn_item_serial_id',
         'serial_number',
         'user_id',
+        'employee_id',
         'branch_id',
         'product_sku',
         'product_name',
@@ -55,6 +56,11 @@ class ProductAssignment extends Model
     public function user()
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    public function employee()
+    {
+        return $this->belongsTo(Employee::class, 'employee_id');
     }
 
     public function assignedBranch()

@@ -23,10 +23,11 @@ class ReportingManagerController extends Controller implements HasMiddleware
     public static function middleware(): array
     {
         return [
-            new Middleware('permission:ReportingManager Index', only: ['index', 'show']),
-            new Middleware('permission:ReportingManager Create', only: ['store']),
-            new Middleware('permission:ReportingManager Update', only: ['update']),
-            new Middleware('permission:ReportingManager Delete', only: ['destroy']),
+            new Middleware('permission:Reporting Manager Index', only: ['index', 'show']),
+            new Middleware('permission:Reporting Manager Create', only: ['store']),
+            new Middleware('permission:Reporting Manager Update', only: ['update']),
+            new Middleware('permission:Reporting Manager Delete', only: ['destroy']),
+            new Middleware('permission:Reporting Manager Toggle Status', only: ['toggleStatus', 'activate', 'deactivate']),
         ];
     }
     /**
@@ -240,37 +241,30 @@ class ReportingManagerController extends Controller implements HasMiddleware
         public function toggleStatus(string $id)
     {
         try {
-            $reportingManager = ReportingManagerModel::query()->find($id);
+            $reportingManager = ReportingManagerModel::find($id);
 
             if (!$reportingManager) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Reporting manager not found'
+                    'message' => 'Reporting manager not found',
+                    'data' => [],
                 ], 404);
             }
 
-            $reportingManager->is_active = !$reportingManager->is_active;
-            $reportingManager->save();
+            $reportingManager->update(['is_active' => !$reportingManager->is_active]);
 
-            Log::info('Reporting manager status toggled', [
-                'user_id' => Auth::id(),
-                'reporting_manager_id' => $reportingManager->id,
-                'new_status' => $reportingManager->is_active
-            ]);
+            $this->logActivity('TOGGLE_STATUS', 'ReportingManager', "Toggled status for reporting manager: {$reportingManager->name}");
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Reporting manager status updated successfully',
-                'data' => [
-                    'id' => $reportingManager->id,
-                    'is_active' => $reportingManager->is_active
-                ]
+                'data' => $reportingManager,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to toggle reporting manager status',
-                'error' => $th->getMessage()
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -278,43 +272,30 @@ class ReportingManagerController extends Controller implements HasMiddleware
      public function activate(string $id)
     {
         try {
-            $reportingManager = ReportingManagerModel::query()->find($id);
+            $reportingManager = ReportingManagerModel::find($id);
 
-            if (! $reportingManager) {
+            if (!$reportingManager) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Reporting manager not found',
+                    'data' => [],
                 ], 404);
-            }
-
-            if ($reportingManager->is_active) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Reporting manager is already active',
-                ], 422);
             }
 
             $reportingManager->update(['is_active' => true]);
 
-            Log::info('Reporting manager activated', [
-                'user_id' => Auth::id(),
-                'reporting_manager_id' => $reportingManager->id,
-            ]);
+            $this->logActivity('ACTIVATE', 'ReportingManager', "Activated reporting manager: {$reportingManager->name}");
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Reporting manager activated successfully',
-                'data' => [
-                    'id' => $reportingManager->id,
-                    'is_active' => $reportingManager->is_active,
-                ]
+                'data' => $reportingManager,
             ]);
-        } catch (
-            \Throwable $th) {
+        } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to activate reporting manager',
-                'error' => $th->getMessage(),
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -322,42 +303,30 @@ class ReportingManagerController extends Controller implements HasMiddleware
     public function deactivate(string $id)
     {
         try {
-            $reportingManager = ReportingManagerModel::query()->find($id);
+            $reportingManager = ReportingManagerModel::find($id);
 
-            if (! $reportingManager) {
+            if (!$reportingManager) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Reporting manager not found',
+                    'data' => [],
                 ], 404);
-            }
-
-            if (! $reportingManager->is_active) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Reporting manager is already inactive',
-                ], 422);
             }
 
             $reportingManager->update(['is_active' => false]);
 
-            Log::info('Reporting manager deactivated', [
-                'user_id' => Auth::id(),
-                'reporting_manager_id' => $reportingManager->id,
-            ]);
+            $this->logActivity('DEACTIVATE', 'ReportingManager', "Deactivated reporting manager: {$reportingManager->name}");
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Reporting manager deactivated successfully',
-                'data' => [
-                    'id' => $reportingManager->id,
-                    'is_active' => $reportingManager->is_active,
-                ]
+                'data' => $reportingManager,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to deactivate reporting manager',
-                'error' => $th->getMessage(),
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }

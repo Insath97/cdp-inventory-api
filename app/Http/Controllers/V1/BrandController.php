@@ -25,6 +25,7 @@ class BrandController extends Controller implements HasMiddleware
             new Middleware('permission:Brand Create', only: ['store']),
             new Middleware('permission:Brand Update', only: ['update']),
             new Middleware('permission:Brand Delete', only: ['destroy']),
+            new Middleware('permission:Brand Toggle Status', only: ['toggleStatus', 'activate', 'deactivate']),
         ];
     }
     /**
@@ -226,37 +227,30 @@ class BrandController extends Controller implements HasMiddleware
      public function toggleStatus(string $id)
     {
         try {
-            $brand = Brand::query()->find($id);
+            $brand = Brand::find($id);
 
             if (!$brand) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Brand not found'
+                    'message' => 'Brand not found',
+                    'data' => [],
                 ], 404);
             }
 
-            $brand->is_active = !$brand->is_active;
-            $brand->save();
+            $brand->update(['is_active' => !$brand->is_active]);
 
-            Log::info('Brand status toggled', [
-                'user_id' => Auth::id(),
-                'brand_id' => $brand->id,
-                'new_status' => $brand->is_active
-            ]);
+            $this->logActivity('TOGGLE_STATUS', 'Brand', "Toggled status for brand: {$brand->name}");
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Brand status updated successfully',
-                'data' => [
-                    'id' => $brand->id,
-                    'is_active' => $brand->is_active
-                ]
+                'data' => $brand,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to toggle brand status',
-                'error' => $th->getMessage()
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -267,21 +261,14 @@ class BrandController extends Controller implements HasMiddleware
     public function activate(string $id)
     {
         try {
-            $brand = Brand::query()->find($id);
+            $brand = Brand::find($id);
 
             if (!$brand) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Brand not found',
+                    'data' => [],
                 ], 404);
-            }
-
-            if ($brand->is_active) {
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'Brand is already active',
-                    'data' => $brand
-                ]);
             }
 
             $brand->update(['is_active' => true]);
@@ -291,13 +278,13 @@ class BrandController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Brand activated successfully',
-                'data' => $brand
+                'data' => $brand,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to activate brand',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -308,21 +295,14 @@ class BrandController extends Controller implements HasMiddleware
     public function deactivate(string $id)
     {
         try {
-            $brand = Brand::query()->find($id);
+            $brand = Brand::find($id);
 
             if (!$brand) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Brand not found',
+                    'data' => [],
                 ], 404);
-            }
-
-            if (!$brand->is_active) {
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'Brand is already inactive',
-                    'data' => $brand
-                ]);
             }
 
             $brand->update(['is_active' => false]);
@@ -332,13 +312,13 @@ class BrandController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Brand deactivated successfully',
-                'data' => $brand
+                'data' => $brand,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to deactivate brand',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }

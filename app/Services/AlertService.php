@@ -2,14 +2,19 @@
 
 namespace App\Services;
 
-use App\Models\User;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 
 class AlertService
 {
     /**
-     * Notify all Super Admins (and optionally Admins) with a message.
+     * Notify the reporting managers with a message.
+     *
+     * These alerts fire off a schedule or a stock movement rather than off
+     * somebody's action, so there is no actor whose manager we could look up —
+     * they go to everyone who is a reporting manager instead. The $extraRoles
+     * argument is kept for callers but no longer widens the audience beyond
+     * that; nothing in the app passes it today.
      */
     public static function notifyAdmins(
         string $title,
@@ -17,10 +22,8 @@ class AlertService
         string $type = 'system_alert',
         array  $extraRoles = []
     ): void {
-        $roles = array_merge(['Super Admin', 'SUPER ADMIN', 'Admin'], $extraRoles);
-
         try {
-            $recipients = User::role($roles)->get();
+            $recipients = app(NotificationRecipientService::class)->reportingManagers();
 
             foreach ($recipients as $recipient) {
                 $recipient->notify(new \App\Notifications\InventoryAlertNotification([
@@ -59,12 +62,10 @@ class AlertService
     /**
      * Fire a low-stock alert when stock drops at or below reorder level.
      *
-     * Targets the manager(s) holding "Reorder Level Update" at the branch
-     * where the stock dropped (falls back to global Super Admin/Admin if
-     * nobody at that branch holds it — see
-     * NotificationRecipientService::usersByBranchPermissions()), rather than
-     * a blanket admin broadcast, so the person actually responsible for
-     * restocking that branch is the one who gets prompted to purchase.
+     * Like the other alerts here this has no acting user, so it goes to the
+     * reporting managers. Branch/permission targeting was dropped along with
+     * the rest of the team fan-outs — a low stock alert is a prompt to raise a
+     * purchase order, which is a manager's call.
      */
     public static function lowStockAlert(
         string $productName,
@@ -75,10 +76,7 @@ class AlertService
         ?int   $productId = null,
     ): void {
         try {
-            $recipientService = app(NotificationRecipientService::class);
-            $targets = $branchId
-                ? $recipientService->reorderManagers($branchId)
-                : $recipientService->usersByPermissions(['Reorder Level Update']);
+            $targets = app(NotificationRecipientService::class)->reportingManagers();
 
             $notification = new \App\Notifications\InventoryAlertNotification([
                 'title'          => 'Low Stock Alert',

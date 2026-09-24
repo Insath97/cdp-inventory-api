@@ -233,37 +233,30 @@ class ProductVariantController extends Controller implements HasMiddleware
     public function toggleStatus(string $id)
     {
         try {
-            $variant = ProductVariant::query()->find($id);
+            $variant = ProductVariant::find($id);
 
             if (!$variant) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Product variant not found'
+                    'message' => 'Product variant not found',
+                    'data' => [],
                 ], 404);
             }
 
-            $variant->is_active = !$variant->is_active;
-            $variant->save();
+            $variant->update(['is_active' => !$variant->is_active]);
 
-            Log::info('Product variant status toggled', [
-                'user_id' => Auth::id(),
-                'variant_id' => $variant->id,
-                'new_status' => $variant->is_active
-            ]);
+            $this->logActivity('TOGGLE_STATUS', 'ProductVariant', "Toggled status for product variant: {$variant->sku}");
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Product variant status updated successfully',
-                'data' => [
-                    'id' => $variant->id,
-                    'is_active' => $variant->is_active
-                ]
+                'data' => $variant,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to toggle product variant status',
-                'error' => $th->getMessage()
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -274,20 +267,14 @@ class ProductVariantController extends Controller implements HasMiddleware
     public function activate(string $id)
     {
         try {
-            $variant = ProductVariant::query()->find($id);
+            $variant = ProductVariant::find($id);
 
             if (!$variant) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Product variant not found',
+                    'data' => [],
                 ], 404);
-            }
-
-            if ($variant->is_active) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Product variant is already active',
-                ], 422);
             }
 
             $variant->update(['is_active' => true]);
@@ -297,13 +284,13 @@ class ProductVariantController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Product variant activated successfully',
-                'data' => $variant->load('product')
+                'data' => $variant,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to activate product variant',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -314,20 +301,14 @@ class ProductVariantController extends Controller implements HasMiddleware
     public function deactivate(string $id)
     {
         try {
-            $variant = ProductVariant::query()->find($id);
+            $variant = ProductVariant::find($id);
 
             if (!$variant) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Product variant not found',
+                    'data' => [],
                 ], 404);
-            }
-
-            if (!$variant->is_active) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Product variant is already inactive',
-                ], 422);
             }
 
             $variant->update(['is_active' => false]);
@@ -337,13 +318,13 @@ class ProductVariantController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Product variant deactivated successfully',
-                'data' => $variant->load('product')
+                'data' => $variant,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to deactivate product variant',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }

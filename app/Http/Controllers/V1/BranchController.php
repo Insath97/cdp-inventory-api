@@ -223,21 +223,14 @@ class BranchController extends Controller implements HasMiddleware
     public function activate(string $id)
     {
         try {
-            $branch = Branch::query()->find($id);
+            $branch = Branch::find($id);
 
             if (!$branch) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Branch not found',
+                    'data' => [],
                 ], 404);
-            }
-
-            if ($branch->is_active) {
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'Branch is already active',
-                    'data' => $branch
-                ]);
             }
 
             $branch->update(['is_active' => true]);
@@ -247,13 +240,13 @@ class BranchController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Branch activated successfully',
-                'data' => $branch
+                'data' => $branch,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to activate branch',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -261,24 +254,17 @@ class BranchController extends Controller implements HasMiddleware
     /**
      * Deactivate the branch.
      */
-     public function deactivate(string $id)
+    public function deactivate(string $id)
     {
         try {
-            $branch = Branch::query()->find($id);
+            $branch = Branch::find($id);
 
-            if (! $branch) {
+            if (!$branch) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Branch not found',
+                    'data' => [],
                 ], 404);
-            }
-
-            if (! $branch->is_active) {
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'Branch is already inactive',
-                    'data' => $branch
-                ]);
             }
 
             $branch->update(['is_active' => false]);
@@ -288,47 +274,44 @@ class BranchController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Branch deactivated successfully',
-                'data' => $branch
+                'data' => $branch,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to deactivate branch',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
 
-     public function toggleStatus(string $id)
+    public function toggleStatus(string $id)
     {
         try {
-            $branch = Branch::query()->find($id);
+            $branch = Branch::find($id);
 
             if (!$branch) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Branch not found'
+                    'message' => 'Branch not found',
+                    'data' => [],
                 ], 404);
             }
 
-            $branch->is_active = !$branch->is_active;
-            $branch->save();
+            $branch->update(['is_active' => !$branch->is_active]);
 
-            $this->logActivity('TOGGLE_STATUS', 'Branch', "Toggled branch status: {$branch->name}");
+            $this->logActivity('TOGGLE_STATUS', 'Branch', "Toggled status for branch: {$branch->name}");
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Branch status updated successfully',
-                'data' => [
-                    'id' => $branch->id,
-                    'is_active' => $branch->is_active
-                ]
+                'data' => $branch,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to toggle branch status',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }

@@ -18,6 +18,12 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Runs before auth:api so the httpOnly login cookie can satisfy the
+        // JWT guard — see AuthTokenFromCookie for why.
+        $middleware->api(prepend: [
+            \App\Http\Middleware\AuthTokenFromCookie::class,
+        ]);
+
         $middleware->alias([
             'auth' => \PHPOpenSourceSaver\JWTAuth\Http\Middleware\Authenticate::class,
             'jwt.auth' => \PHPOpenSourceSaver\JWTAuth\Http\Middleware\Authenticate::class,

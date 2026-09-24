@@ -8,6 +8,7 @@ use App\Models\Product;
 use App\Models\Branch;
 use App\Models\GrnItemSerial;
 use App\Models\User;
+use App\Models\Employee;
 use App\Http\Requests\CreateProductAssignmentRequest;
 use App\Http\Requests\UpdateProductAssignmentRequest;
 use App\Services\NotificationRecipientService;
@@ -33,6 +34,7 @@ class ProductsAssignmentsController extends Controller implements HasMiddleware
             new Middleware('permission:ProductAssignment Create|Product Create|CheckIn Create|CheckOut Create|Grn Create', only: ['store']),
             new Middleware('permission:ProductAssignment Update|Product Update|CheckIn Update|CheckOut Update|Grn Update', only: ['update']),
             new Middleware('permission:ProductAssignment Delete|Product Delete|CheckIn Delete|CheckOut Delete|Grn Delete', only: ['destroy']),
+            new Middleware('permission:ProductAssignment Toggle Status', only: ['toggleStatus', 'activate', 'deactivate']),
         ];
     }
 
@@ -44,7 +46,9 @@ class ProductsAssignmentsController extends Controller implements HasMiddleware
         try {
             $perPage = $request->get('per_page', 15);
 
-            $query = ProductAssignment::query()->with('product');
+            // returnedBy is eager loaded so the Returned view can name who
+            // processed the return without an extra round trip per row.
+            $query = ProductAssignment::query()->with(['product', 'returnedBy', 'employee:id,employee_code,full_name']);
 
             $user = Auth::user();
             if ($user && !$user->can('ProductAssignment View All')) {
@@ -87,6 +91,16 @@ class ProductsAssignmentsController extends Controller implements HasMiddleware
                 });
             }
 
+            // status=active shows only what people are currently holding;
+            // status=returned shows what has come back. Omitted means "all",
+            // so existing callers keep the behaviour they had.
+            $status = $request->get('status');
+            if ($status === 'active') {
+                $query->where('is_active', true);
+            } elseif ($status === 'returned') {
+                $query->where('is_active', false);
+            }
+
             if ($request->has('search') ) {
                 $query->search($request->search);
             }
@@ -104,6 +118,17 @@ class ProductsAssignmentsController extends Controller implements HasMiddleware
             }
 
             $productassignments = $query->orderBy('created_at', 'desc')->paginate($perPage);
+
+            // Expose who processed the return as a plain name, then drop the
+            // relation: Eloquent serializes a `returnedBy` relation under the
+            // key `returned_by`, which would otherwise clobber the foreign-key
+            // integer of the same name.
+            $productassignments->getCollection()->transform(function ($assignment) {
+                $assignment->returned_by_name = $assignment->returnedBy?->name;
+                $assignment->unsetRelation('returnedBy');
+
+                return $assignment;
+            });
 
             return response()->json([
                 'status' => 'success',
@@ -188,9 +213,11 @@ class ProductsAssignmentsController extends Controller implements HasMiddleware
             // Resolve the real User/Branch records into the denormalized
             // name columns the rest of this controller (search, notifications,
             // reporting-manager scoping) already relies on.
-            $user = User::find($data['user_id']);
+            // The person is either a system User or an Employee record.
+            $user = !empty($data['user_id']) ? User::find($data['user_id']) : null;
+            $employee = !empty($data['employee_id']) ? Employee::find($data['employee_id']) : null;
             $branch = Branch::find($data['branch_id']);
-            $data['person_name'] = $user?->name;
+            $data['person_name'] = $employee?->full_name ?? $user?->name;
             $data['branch_name'] = $branch?->name;
 
             if (!empty($data['grn_item_serial_id'])) {
@@ -203,15 +230,26 @@ class ProductsAssignmentsController extends Controller implements HasMiddleware
                     ], 404);
                 }
 
-                $alreadyAssigned = ProductAssignment::where('grn_item_serial_id', $serial->id)
+                // A serial is one physical unit, so it can only be with one
+                // person at a time. Handing it to someone else automatically
+                // returns it from whoever holds it now — the old row is marked
+                // returned (never deleted), so it drops off the active list
+                // while staying in the unit's assignment history.
+                $currentHolders = ProductAssignment::where('grn_item_serial_id', $serial->id)
                     ->where('is_active', true)
-                    ->exists();
-                if ($alreadyAssigned) {
-                    DB::rollBack();
-                    return response()->json([
-                        'status' => 'error',
-                        'message' => "Serial {$serial->serial_number} is already assigned. Return it before reassigning.",
-                    ], 409);
+                    ->get();
+
+                foreach ($currentHolders as $holder) {
+                    $holder->update([
+                        'is_active' => false,
+                        'returned_at' => now(),
+                        'returned_by' => Auth::id(),
+                    ]);
+                    $this->logActivity(
+                        'AUTO_RETURN',
+                        'Product Assignment',
+                        "Auto-returned {$serial->serial_number} from {$holder->person_name} on reassignment"
+                    );
                 }
 
                 $data['quantity'] = 1;
@@ -258,18 +296,14 @@ class ProductsAssignmentsController extends Controller implements HasMiddleware
             ]);
 
             try {
-                $targets = $recipientService->mergeCollections(
-                    $recipientService->usersByNames([$productassignment->person_name]),
-                    $recipientService->usersByPermissions(['ProductAssignment Update', 'ProductAssignment Index'])
-                );
-
-                foreach ($targets as $user) {
-                    $user->notify($notification);
-                }
-
-                $reportingManager = $recipientService->reportingManagerOf(Auth::user(), ['ProductAssignment Update']);
-                if ($reportingManager && !$targets->contains('id', $reportingManager->id)) {
-                    $reportingManager->notify($notification);
+                // The person the product was assigned to, plus their reporting
+                // manager — the assignment is only those two people's business.
+                // Employees aren't system users, so there is nobody to notify
+                // for an employee-only assignment.
+                if ($productassignment->user) {
+                    foreach ($recipientService->actorAndReportingManager($productassignment->user) as $target) {
+                        $target->notify($notification);
+                    }
                 }
             } catch (\Throwable $notifyErr) {
                 Log::error('Failed to send product assignment notification: ' . $notifyErr->getMessage());
@@ -282,7 +316,7 @@ class ProductsAssignmentsController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Product Assignment created successfully',
-                'data' => $productassignment->load(['product'])
+                'data' => $productassignment->load(['product', 'employee:id,employee_code,full_name'])
             ], 201);
         } catch (\Throwable $th) {
             DB::rollBack();
@@ -433,12 +467,13 @@ class ProductsAssignmentsController extends Controller implements HasMiddleware
     public function toggleStatus(string $id)
     {
         try {
-            $productassignment = ProductAssignment::query()->find($id);
+            $productassignment = ProductAssignment::find($id);
 
             if (!$productassignment) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Product Assignment not found'
+                    'message' => 'Product Assignment not found',
+                    'data' => [],
                 ], 404);
             }
 
@@ -457,7 +492,7 @@ class ProductsAssignmentsController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to toggle product assignment status',
-                'error' => $th->getMessage()
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -468,12 +503,13 @@ class ProductsAssignmentsController extends Controller implements HasMiddleware
     public function activate(string $id)
     {
         try {
-            $productassignment = ProductAssignment::query()->find($id);
+            $productassignment = ProductAssignment::find($id);
 
             if (!$productassignment) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Product Assignment not found',
+                    'data' => [],
                 ], 404);
             }
 
@@ -490,7 +526,7 @@ class ProductsAssignmentsController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to activate product assignment',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -501,12 +537,13 @@ class ProductsAssignmentsController extends Controller implements HasMiddleware
     public function deactivate(string $id)
     {
         try {
-            $productassignment = ProductAssignment::query()->find($id);
+            $productassignment = ProductAssignment::find($id);
 
             if (!$productassignment) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Product Assignment not found',
+                    'data' => [],
                 ], 404);
             }
 
@@ -529,13 +566,12 @@ class ProductsAssignmentsController extends Controller implements HasMiddleware
                     'url' => '/product-assignments/' . $productassignment->id,
                 ]);
 
-                $targets = $recipientService->mergeCollections(
-                    $recipientService->usersByNames([$productassignment->person_name]),
-                    $recipientService->usersByPermissions(['ProductAssignment Update', 'ProductAssignment Index'])
-                );
-
-                foreach ($targets as $user) {
-                    $user->notify($notification);
+                // The person the product was assigned to, plus their reporting
+                // manager — nobody else needs telling that it came back.
+                if ($productassignment->user) {
+                    foreach ($recipientService->actorAndReportingManager($productassignment->user) as $target) {
+                        $target->notify($notification);
+                    }
                 }
             } catch (\Throwable $notifyErr) {
                 Log::error('Failed to send product return notification: ' . $notifyErr->getMessage());
@@ -546,13 +582,13 @@ class ProductsAssignmentsController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Product Assignment deactivated successfully',
-                'data' => $productassignment->load(['product'])
+                'data' => $productassignment,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to deactivate product assignment',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }

@@ -182,7 +182,9 @@ class UserController extends Controller implements HasMiddleware
                 $data['reporting_manager_id'] = null;
             }
 
-            // Handle Profile Image
+            // Handle Profile Image — only the server-generated upload path may
+            // ever reach the column; never a client-supplied value.
+            unset($data['profile_image']);
             $imagePath = $this->handleFileUpload($request, 'profile_image', null, 'users/profile', $data['email']);
             if ($imagePath) {
                 $data['profile_image'] = $imagePath;
@@ -348,6 +350,18 @@ class UserController extends Controller implements HasMiddleware
             }
 
             $data = $request->validated();
+            $actor = Auth::user();
+
+            // A Super Admin account may only be modified by another Super Admin.
+            // Without this, any "User Update" holder could reset its password,
+            // demote its role, or deactivate it — a full account takeover.
+            if ($user->hasAnyRole(['Super Admin', 'SUPER ADMIN'])
+                && (!$actor || !$actor->hasAnyRole(['Super Admin', 'SUPER ADMIN']))) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Only a Super Admin can modify a Super Admin account.'
+                ], 403);
+            }
 
             if (array_key_exists('reporting_manager_user_id', $data)) {
                 $data['reporting_manager_id'] = $this->resolveReportingManagerId($data['reporting_manager_user_id']);
@@ -355,9 +369,28 @@ class UserController extends Controller implements HasMiddleware
             }
 
             if (isset($data['password'])) {
+                // Resetting a password through the admin endpoint needs its own
+                // permission — "User Update" alone must not take over accounts.
+                // Users change their own password via PUT /profile/password,
+                // which verifies the current password.
+                if (!$actor || !$actor->can('User Reset Password')) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Only users with explicit permission can reset passwords. Use the profile password endpoint to change your own.'
+                    ], 403);
+                }
                 $data['password'] = Hash::make($data['password']);
             } else {
                 unset($data['password']);
+            }
+
+            // No self-service role changes: holding "User Update" must not let
+            // a user promote their own account.
+            if (isset($data['role']) && $actor && (int) $id === (int) $actor->id && !$user->hasRole($data['role'])) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'You cannot change your own role.'
+                ], 403);
             }
 
             // Protect privileged fields (user_type modification)
@@ -385,7 +418,9 @@ class UserController extends Controller implements HasMiddleware
                 $data['reporting_manager_id'] = null;
             }
 
-            // Handle Image Upload
+            // Handle Image Upload — only the server-generated upload path may
+            // ever reach the column; never a client-supplied value.
+            unset($data['profile_image']);
             $imagePath = $this->handleFileUpload($request, 'profile_image', $user->profile_image, 'users/profile', $user->email);
             if ($imagePath) {
                 $data['profile_image'] = $imagePath;
@@ -476,6 +511,16 @@ class UserController extends Controller implements HasMiddleware
                 ], 422);
             }
 
+            // A Super Admin account may only be deleted by another Super Admin,
+            // even by holders of "Delete Any User".
+            if ($user->hasAnyRole(['Super Admin', 'SUPER ADMIN'])
+                && !Auth::user()->hasAnyRole(['Super Admin', 'SUPER ADMIN'])) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Only a Super Admin can delete a Super Admin account.'
+                ], 403);
+            }
+
             // Safeguard: Prevent deleting the last Super Admin
             if ($user->hasRole('Super Admin') || $user->hasRole('SUPER ADMIN')) {
                 $activeSuperAdminsCount = User::where('is_active', true)
@@ -526,7 +571,8 @@ class UserController extends Controller implements HasMiddleware
             if (!$user) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'User not found'
+                    'message' => 'User not found',
+                    'data' => [],
                 ], 404);
             }
 
@@ -554,14 +600,7 @@ class UserController extends Controller implements HasMiddleware
                 }
             }
 
-            $user->is_active = !$user->is_active;
-            $user->save();
-
-            Log::info('User status toggled', [
-                'admin_id' => Auth::id(),
-                'target_user_id' => $user->id,
-                'new_status' => $user->is_active
-            ]);
+            $user->update(['is_active' => !$user->is_active]);
 
             $status = $user->is_active ? 'Activated' : 'Deactivated';
             $this->logActivity('UPDATE', 'User', "{$status} user: {$user->name} ({$user->email})");
@@ -569,16 +608,13 @@ class UserController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'User status updated successfully',
-                'data' => [
-                    'id' => $user->id,
-                    'is_active' => $user->is_active
-                ]
+                'data' => $user,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to toggle user status',
-                'error' => $th->getMessage()
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }

@@ -120,19 +120,9 @@ class StockTakeController extends Controller implements HasMiddleware
                 ]);
 
                 $recipientService = app(\App\Services\NotificationRecipientService::class);
-                $targets = clone $recipientService->usersByBranchPermissions($stockTake->branch, ['StockTake Update', 'StockTake Index']);
-                
-                if ($targets->isEmpty()) {
-                    $targets = $recipientService->usersByPermissions(['StockTake Update', 'StockTake Index']);
-                }
 
-                foreach ($targets as $targetUser) {
-                    $targetUser->notify($notification);
-                }
-
-                $reportingManager = $recipientService->reportingManagerOf(\Illuminate\Support\Facades\Auth::user(), ['StockTake Update']);
-                if ($reportingManager && !$targets->contains('id', $reportingManager->id)) {
-                    $reportingManager->notify($notification);
+                foreach ($recipientService->actorAndReportingManager(\Illuminate\Support\Facades\Auth::user()) as $target) {
+                    $target->notify($notification);
                 }
             } catch (\Throwable $notifyErr) {
                 \Illuminate\Support\Facades\Log::error('Failed to send Stock Take creation notification: ' . $notifyErr->getMessage());
@@ -238,14 +228,7 @@ class StockTakeController extends Controller implements HasMiddleware
                 try {
                     $creator = \App\Models\User::find($stockTake->created_by);
                     $recipientService = app(\App\Services\NotificationRecipientService::class);
-                    
-                    $managerTargets = clone $recipientService->usersByBranchPermissions($stockTake->branch, ['StockTake Update']);
-                    
-                    $targets = collect();
-                    if ($creator) {
-                        $targets->push($creator);
-                    }
-                    $targets = $recipientService->mergeCollections($targets, $managerTargets);
+                    $targets = $recipientService->actorAndReportingManager($creator);
 
                     $approverName = \Illuminate\Support\Facades\Auth::user()?->name ?? 'Admin';
                     $statusTitle = ucfirst($stockTake->status);
@@ -264,11 +247,6 @@ class StockTakeController extends Controller implements HasMiddleware
                     foreach ($targets as $targetUser) {
                         try {
                             $targetUser->notify($notification);
-                            if ($targetUser->email) {
-                                \Illuminate\Support\Facades\Mail::to($targetUser->email)->send(
-                                    new \App\Mail\StockTakeMail($stockTake)
-                                );
-                            }
                         } catch (\Throwable $e) {
                             \Illuminate\Support\Facades\Log::error('Failed to notify user: ' . $e->getMessage());
                         }

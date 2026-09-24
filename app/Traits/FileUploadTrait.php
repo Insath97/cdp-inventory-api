@@ -92,9 +92,11 @@ trait FileUploadTrait
                 $extension = 'bin';
             }
 
-            // Generate unique filename
-            $fileName = $prefix
-                ? $prefix . '_' . ($index + 1) . '.' . $extension
+            // Generate unique filename (slug the prefix like the single-upload
+            // variant so a caller-supplied prefix can never traverse paths)
+            $safePrefix = $prefix ? Str::slug(pathinfo($prefix, PATHINFO_FILENAME)) : '';
+            $fileName = $safePrefix
+                ? $safePrefix . '_' . ($index + 1) . '_' . Str::random(8) . '.' . $extension
                 : Str::random(25) . '_' . ($index + 1) . '.' . $extension;
 
             $directory = "uploads/{$module}";
@@ -128,16 +130,47 @@ trait FileUploadTrait
     }
 
     /**
-     * Delete a single file from both storage and public
+     * Resolve a stored upload path to a real file inside the managed uploads
+     * directory under the given root, or null if it points anywhere else.
+     * Stored paths come back from the database, where a request could have
+     * planted a traversal string — never trust them.
+     */
+    private function resolveManagedUpload(string $root, string $path): ?string
+    {
+        $path = str_replace('\\', '/', $path);
+
+        if (!str_starts_with($path, 'uploads/') || str_contains($path, '..')) {
+            return null;
+        }
+
+        $real = realpath($root . DIRECTORY_SEPARATOR . $path);
+        $uploadsRoot = realpath($root . DIRECTORY_SEPARATOR . 'uploads');
+
+        if ($real === false || $uploadsRoot === false) {
+            return null;
+        }
+
+        if (!str_starts_with($real, $uploadsRoot . DIRECTORY_SEPARATOR)) {
+            return null;
+        }
+
+        return is_file($real) ? $real : null;
+    }
+
+    /**
+     * Delete a single file from both storage and public.
+     * Only files inside the managed uploads directories are ever deleted.
      */
     public function deleteFile(?string $path): void
     {
-        if ($path) {
-            if (File::exists(public_path($path))) {
-                File::delete(public_path($path));
-            }
-            if (File::exists(storage_path("app/public/{$path}"))) {
-                File::delete(storage_path("app/public/{$path}"));
+        if (!$path) {
+            return;
+        }
+
+        foreach ([public_path(), storage_path('app/public')] as $root) {
+            $target = $this->resolveManagedUpload($root, $path);
+            if ($target !== null) {
+                File::delete($target);
             }
         }
     }

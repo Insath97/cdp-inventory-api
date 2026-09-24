@@ -26,7 +26,7 @@ class SupplierBankAccountController extends Controller implements HasMiddleware
             new Middleware('permission:Supplier Bank Account Create', only: ['store']),
             new Middleware('permission:Supplier Bank Account Update', only: ['update']),
             new Middleware('permission:Supplier Bank Account Delete', only: ['destroy']),
-            new Middleware('permission:Supplier Bank Account Toggle Status', only: ['toggleStatus']),
+            new Middleware('permission:Supplier Bank Account Toggle Status', only: ['toggleStatus', 'activate', 'deactivate']),
         ];
     }
     /**
@@ -233,37 +233,30 @@ class SupplierBankAccountController extends Controller implements HasMiddleware
       public function toggleStatus(string $id)
     {
         try {
-            $supplierBankAccount = SupplierBankAccount::query()->find($id);
+            $supplierBankAccount = SupplierBankAccount::find($id);
 
             if (!$supplierBankAccount) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Supplier bank account not found'
+                    'message' => 'Supplier bank account not found',
+                    'data' => [],
                 ], 404);
             }
 
-            $supplierBankAccount->is_active = !$supplierBankAccount->is_active;
-            $supplierBankAccount->save();
+            $supplierBankAccount->update(['is_active' => !$supplierBankAccount->is_active]);
 
-            Log::info('Supplier bank account status toggled', [
-                'user_id' => Auth::id(),
-                'supplier_bank_account_id' => $supplierBankAccount->id,
-                'new_status' => $supplierBankAccount->is_active
-            ]);
+            $this->logActivity('TOGGLE_STATUS', 'SupplierBankAccount', "Toggled status for supplier bank account: {$supplierBankAccount->id}");
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Supplier bank account status updated successfully',
-                'data' => [
-                    'id' => $supplierBankAccount->id,
-                    'is_active' => $supplierBankAccount->is_active
-                ]
+                'data' => $supplierBankAccount,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to toggle supplier bank account status',
-                'error' => $th->getMessage()
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -271,42 +264,30 @@ class SupplierBankAccountController extends Controller implements HasMiddleware
      public function activate(string $id)
     {
         try {
-            $supplierBankAccount = SupplierBankAccount::query()->find($id);
+            $supplierBankAccount = SupplierBankAccount::find($id);
 
-            if (! $supplierBankAccount) {
+            if (!$supplierBankAccount) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Supplier bank account not found',
+                    'data' => [],
                 ], 404);
-            }
-
-            if ($supplierBankAccount->is_active) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Supplier bank account is already active',
-                ], 422);
             }
 
             $supplierBankAccount->update(['is_active' => true]);
 
-            Log::info('Supplier bank account activated', [
-                'user_id' => Auth::id(),
-                'supplier_bank_account_id' => $supplierBankAccount->id,
-            ]);
+            $this->logActivity('ACTIVATE', 'SupplierBankAccount', "Activated supplier bank account: {$supplierBankAccount->id}");
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Supplier bank account activated successfully',
-                'data' => [
-                    'id' => $supplierBankAccount->id,
-                    'is_active' => $supplierBankAccount->is_active,
-                ]
+                'data' => $supplierBankAccount,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to activate supplier bank account',
-                'error' => $th->getMessage(),
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -314,42 +295,30 @@ class SupplierBankAccountController extends Controller implements HasMiddleware
     public function deactivate(string $id)
     {
         try {
-            $supplierBankAccount = SupplierBankAccount::query()->find($id);
+            $supplierBankAccount = SupplierBankAccount::find($id);
 
-            if (! $supplierBankAccount) {
+            if (!$supplierBankAccount) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Supplier bank account not found',
+                    'data' => [],
                 ], 404);
-            }
-
-            if (! $supplierBankAccount->is_active) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Supplier bank account is already inactive',
-                ], 422);
             }
 
             $supplierBankAccount->update(['is_active' => false]);
 
-            Log::info('Supplier bank account deactivated', [
-                'user_id' => Auth::id(),
-                'supplier_bank_account_id' => $supplierBankAccount->id,
-            ]);
+            $this->logActivity('DEACTIVATE', 'SupplierBankAccount', "Deactivated supplier bank account: {$supplierBankAccount->id}");
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Supplier bank account deactivated successfully',
-                'data' => [
-                    'id' => $supplierBankAccount->id,
-                    'is_active' => $supplierBankAccount->is_active,
-                ]
+                'data' => $supplierBankAccount,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to deactivate supplier bank account',
-                'error' => $th->getMessage(),
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }

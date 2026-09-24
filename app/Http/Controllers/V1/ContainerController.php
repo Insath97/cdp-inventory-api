@@ -11,9 +11,10 @@ use Illuminate\Support\Facades\DB;
 use App\Traits\ActivityLogTrait;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Routing\Controllers\Middleware;
+use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Support\Facades\Log;
 
-class ContainerController extends Controller
+class ContainerController extends Controller implements HasMiddleware
 {
    use ActivityLogTrait;
 
@@ -24,6 +25,7 @@ class ContainerController extends Controller
             new Middleware('permission:Container Create', only: ['store']),
             new Middleware('permission:Container Update', only: ['update']),
             new Middleware('permission:Container Delete', only: ['destroy']),
+            new Middleware('permission:Container Toggle Status', only: ['toggleStatus', 'activate', 'deactivate']),
         ];
     }
     /**
@@ -228,37 +230,30 @@ class ContainerController extends Controller
      public function toggleStatus(string $id)
     {
         try {
-            $container = Container::query()->find($id);
+            $container = Container::find($id);
 
             if (!$container) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Container not found'
+                    'message' => 'Container not found',
+                    'data' => [],
                 ], 404);
             }
 
-            $container->is_active = !$container->is_active;
-            $container->save();
+            $container->update(['is_active' => !$container->is_active]);
 
-            Log::info('Container status toggled', [
-                'user_id' => Auth::id(),
-                'container_id' => $container->id,
-                'new_status' => $container->is_active
-            ]);
+            $this->logActivity('TOGGLE_STATUS', 'Container', "Toggled status for container: {$container->name}");
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Container status updated successfully',
-                'data' => [
-                    'id' => $container->id,
-                    'is_active' => $container->is_active
-                ]
+                'data' => $container,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to toggle container status',
-                'error' => $th->getMessage()
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -267,40 +262,30 @@ class ContainerController extends Controller
      public function activate(string $id)
     {
         try {
-            $container = Container::query()->find($id);
+            $container = Container::find($id);
 
-            if (! $container) {
+            if (!$container) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Container not found',
+                    'data' => [],
                 ], 404);
-            }
-
-            if ($container->is_active) {
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'Container is already active',
-                    'data' => $container
-                ]);
             }
 
             $container->update(['is_active' => true]);
 
-            Log::info('Container activated', [
-                'user_id' => Auth::id(),
-                'container_id' => $container->id,
-            ]);
+            $this->logActivity('ACTIVATE', 'Container', "Activated container: {$container->name}");
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Container activated successfully',
-                'data' => $container
+                'data' => $container,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to activate container',
-                'error' => $th->getMessage(),
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -309,40 +294,30 @@ class ContainerController extends Controller
     public function deactivate(string $id)
     {
         try {
-            $container = Container::query()->find($id);
+            $container = Container::find($id);
 
-            if (! $container) {
+            if (!$container) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Container not found',
+                    'data' => [],
                 ], 404);
-            }
-
-            if (! $container->is_active) {
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'Container is already inactive',
-                    'data' => $container
-                ]);
             }
 
             $container->update(['is_active' => false]);
 
-            Log::info('Container deactivated', [
-                'user_id' => Auth::id(),
-                'container_id' => $container->id,
-            ]);
+            $this->logActivity('DEACTIVATE', 'Container', "Deactivated container: {$container->name}");
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Container deactivated successfully',
-                'data' => $container
+                'data' => $container,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to deactivate container',
-                'error' => $th->getMessage(),
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }

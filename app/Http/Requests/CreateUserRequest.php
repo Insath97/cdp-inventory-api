@@ -2,14 +2,11 @@
 
 namespace App\Http\Requests;
 
-use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Contracts\Validation\Validator;
-use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Validation\Rule;
 
 use Illuminate\Validation\Rules\Password;
 
-class CreateUserRequest extends FormRequest
+class CreateUserRequest extends BaseFormRequest
 {
     /**
      * Determine if the user is authorized to make this request.
@@ -46,7 +43,7 @@ class CreateUserRequest extends FormRequest
             'region_id' => 'nullable|exists:regions,id',
             'province_id' => 'nullable|exists:provinces,id',
 
-            'profile_image' => 'nullable|string',
+            'profile_image' => 'nullable|file|image|mimes:jpg,jpeg,png,gif,webp|max:2048',
             'is_active' => 'sometimes|boolean',
             'can_login' => 'sometimes|boolean',
             'is_reporting_manager' => 'sometimes|boolean',
@@ -58,26 +55,5 @@ class CreateUserRequest extends FormRequest
         return [
             'user_code.unique' => 'This user code is already in use for another user. Please enter correct user code.',
         ];
-    }
-
-    protected function failedValidation(Validator $validator)
-    {
-        $errorMessages = $validator->errors();
-
-        $fieldErrors = collect($errorMessages->getMessages())->map(function ($messages, $field) {
-            return [
-                'field' => $field,
-                'messages' => $messages,
-            ];
-        })->values();
-
-        $message = $fieldErrors->count() > 1
-            ? 'There are multiple validation errors. Please review the form and correct the issues.'
-            : 'There is an issue with the input for ' . $fieldErrors->first()['field'] . '.';
-
-        throw new HttpResponseException(response()->json([
-            'message' => $message,
-            'errors' => $fieldErrors,
-        ], 422));
     }
 }

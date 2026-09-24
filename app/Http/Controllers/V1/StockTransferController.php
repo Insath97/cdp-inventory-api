@@ -154,19 +154,9 @@ class StockTransferController extends Controller implements HasMiddleware
                 ]);
 
                 $recipientService = app(NotificationRecipientService::class);
-                $targets = clone $recipientService->usersByBranchPermissions($stockTransfer->fromBranch, ['StockTransfer Update', 'StockTransfer Index']);
-                
-                if ($targets->isEmpty()) {
-                    $targets = $recipientService->usersByPermissions(['StockTransfer Update', 'StockTransfer Index']);
-                }
 
-                foreach ($targets as $targetUser) {
-                    $targetUser->notify($notification);
-                }
-
-                $reportingManager = $recipientService->reportingManagerOf($user, ['StockTransfer Update']);
-                if ($reportingManager && !$targets->contains('id', $reportingManager->id)) {
-                    $reportingManager->notify($notification);
+                foreach ($recipientService->actorAndReportingManager($user) as $target) {
+                    $target->notify($notification);
                 }
             } catch (\Throwable $notifyErr) {
                 Log::error('Failed to send Stock Transfer creation notification: ' . $notifyErr->getMessage());
@@ -266,20 +256,9 @@ class StockTransferController extends Controller implements HasMiddleware
                     'url' => '/stock-transfers/' . $stockTransfer->id,
                 ]);
 
-                $targets = $recipientService->mergeCollections(
-                    $recipientService->branchManagers($stockTransfer->fromBranch),
-                    $recipientService->branchManagers($stockTransfer->toBranch)
-                );
-
-                foreach ($targets as $user) {
-                    $user->notify($notification);
-                }
-
-                $admins = $recipientService->adminsAndSuperAdmins($stockTransfer->from_branch_id);
-                foreach ($admins as $admin) {
-                    if ($admin->email) {
-                        \Illuminate\Support\Facades\Mail::to($admin->email)->send(new \App\Mail\StockTransferMail($stockTransfer));
-                    }
+                $creator = User::find($stockTransfer->created_by);
+                foreach ($recipientService->actorAndReportingManager($creator ?? Auth::user()) as $target) {
+                    $target->notify($notification);
                 }
             }
 

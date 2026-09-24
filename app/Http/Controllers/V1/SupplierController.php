@@ -26,6 +26,7 @@ class SupplierController extends Controller implements HasMiddleware
             new Middleware('permission:Supplier Create', only: ['store']),
             new Middleware('permission:Supplier Update', only: ['update']),
             new Middleware('permission:Supplier Delete', only: ['destroy']),
+            new Middleware('permission:Supplier Toggle Status', only: ['toggleStatus', 'activate', 'deactivate']),
         ];
     }
 
@@ -238,37 +239,30 @@ class SupplierController extends Controller implements HasMiddleware
     public function toggleStatus(string $id)
     {
         try {
-            $supplier = Supplier::query()->find($id);
+            $supplier = Supplier::find($id);
 
             if (!$supplier) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Supplier not found'
+                    'message' => 'Supplier not found',
+                    'data' => [],
                 ], 404);
             }
 
-            $supplier->is_active = !$supplier->is_active;
-            $supplier->save();
+            $supplier->update(['is_active' => !$supplier->is_active]);
 
-            Log::info('Supplier status toggled', [
-                'user_id' => Auth::id(),
-                'supplier_id' => $supplier->id,
-                'new_status' => $supplier->is_active
-            ]);
+            $this->logActivity('TOGGLE_STATUS', 'Supplier', "Toggled status for supplier: {$supplier->supplier_name}");
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Supplier status updated successfully',
-                'data' => [
-                    'id' => $supplier->id,
-                    'is_active' => $supplier->is_active
-                ]
+                'data' => $supplier,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to toggle supplier status',
-                'error' => $th->getMessage()
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -276,43 +270,30 @@ class SupplierController extends Controller implements HasMiddleware
      public function activate(string $id)
     {
         try {
-            $supplier = Supplier::query()->find($id);
+            $supplier = Supplier::find($id);
 
-            if (! $supplier) {
+            if (!$supplier) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Supplier not found',
+                    'data' => [],
                 ], 404);
-            }
-
-            if ($supplier->is_active) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Supplier is already active',
-                ], 422);
             }
 
             $supplier->update(['is_active' => true]);
 
-            Log::info('Supplier activated', [
-                'user_id' => Auth::id(),
-                'supplier_id' => $supplier->id,
-            ]);
+            $this->logActivity('ACTIVATE', 'Supplier', "Activated supplier: {$supplier->supplier_name}");
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Supplier activated successfully',
-                'data' => [
-                    'id' => $supplier->id,
-                    'is_active' => $supplier->is_active,
-                ]
+                'data' => $supplier,
             ]);
-        } catch (
-            \Throwable $th) {
+        } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to activate supplier',
-                'error' => $th->getMessage(),
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -320,42 +301,30 @@ class SupplierController extends Controller implements HasMiddleware
     public function deactivate(string $id)
     {
         try {
-            $supplier = Supplier::query()->find($id);
+            $supplier = Supplier::find($id);
 
-            if (! $supplier) {
+            if (!$supplier) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Supplier not found',
+                    'data' => [],
                 ], 404);
-            }
-
-            if (! $supplier->is_active) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Supplier is already inactive',
-                ], 422);
             }
 
             $supplier->update(['is_active' => false]);
 
-            Log::info('Supplier deactivated', [
-                'user_id' => Auth::id(),
-                'supplier_id' => $supplier->id,
-            ]);
+            $this->logActivity('DEACTIVATE', 'Supplier', "Deactivated supplier: {$supplier->supplier_name}");
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Supplier deactivated successfully',
-                'data' => [
-                    'id' => $supplier->id,
-                    'is_active' => $supplier->is_active,
-                ]
+                'data' => $supplier,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to deactivate supplier',
-                'error' => $th->getMessage(),
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }

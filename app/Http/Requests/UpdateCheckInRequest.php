@@ -2,11 +2,7 @@
 
 namespace App\Http\Requests;
 
-use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Contracts\Validation\Validator;
-use Illuminate\Http\Exceptions\HttpResponseException;
-
-class UpdateCheckInRequest extends FormRequest
+class UpdateCheckInRequest extends BaseFormRequest
 {
     /**
      * Determine if the user is authorized to make this request.
@@ -39,20 +35,5 @@ class UpdateCheckInRequest extends FormRequest
             ];
     }
 
-    protected function failedValidation(Validator $validator)
-    {
-        $fieldErrors = collect($validator->errors()->getMessages())
-            ->map(fn($messages, $field) => ['field' => $field, 'messages' => $messages])
-            ->values();
-
-        $message = $fieldErrors->count() > 1
-            ? 'There are multiple validation errors. Please review the form and correct the issues.'
-            : 'There is an issue with the input for ' . $fieldErrors->first()['field'] . '.';
-
-        throw new HttpResponseException(response()->json([
-            'message' => $message,
-            'errors' => $fieldErrors,
-        ], 422));
-    }
 }
 ?>

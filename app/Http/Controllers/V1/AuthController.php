@@ -84,10 +84,12 @@ class AuthController extends Controller
 
             $this->logActivity('LOGIN', 'Auth', "User logged in: {$user->name} ({$user->email})");
 
+            // Lifetime matches the JWT TTL — a cookie that outlives its token
+            // only produces confusing 401s.
             $cookie = cookie(
                 'auth_token',
                 $token,
-                60 * 24 * 7,
+                (int) config('jwt.ttl'),
                 '/',
                 null,
                 true,  // Secure
