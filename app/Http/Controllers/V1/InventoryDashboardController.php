@@ -24,12 +24,10 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use App\Traits\ActivityLogTrait;
-use App\Traits\TogglesActiveStatus;
 
 class InventoryDashboardController extends Controller implements HasMiddleware
 {
     use ActivityLogTrait;
-    use TogglesActiveStatus;
 
     public static function middleware(): array
     {
@@ -574,16 +572,33 @@ class InventoryDashboardController extends Controller implements HasMiddleware
      */
     public function toggleStatus(string $id)
     {
-        return $this->setActiveState(InventoryDashboard::class, $id, null, [
-            'not_found' => 'Inventory dashboard not found',
-            'success' => 'Inventory dashboard status updated successfully',
-            'failed' => 'Failed to toggle inventory dashboard status',
-        ], [
-            'data' => 'subset',
-            'log' => function ($dashboard) {
-                $this->logActivity('TOGGLE_STATUS', 'InventoryDashboard', "Toggled inventory dashboard status: {$dashboard->name}");
-            },
-        ]);
+        try {
+            $dashboard = InventoryDashboard::find($id);
+
+            if (!$dashboard) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Inventory dashboard not found',
+                    'data' => [],
+                ], 404);
+            }
+
+            $dashboard->update(['is_active' => !$dashboard->is_active]);
+
+            $this->logActivity('TOGGLE_STATUS', 'InventoryDashboard', "Toggled inventory dashboard status: {$dashboard->name}");
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Inventory dashboard status updated successfully',
+                'data' => $dashboard,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to toggle inventory dashboard status',
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
+            ], 500);
+        }
     }
 
     /**
@@ -591,16 +606,33 @@ class InventoryDashboardController extends Controller implements HasMiddleware
      */
     public function activate(string $id)
     {
-        return $this->setActiveState(InventoryDashboard::class, $id, true, [
-            'not_found' => 'Inventory dashboard not found',
-            'already' => 'Inventory dashboard is already active',
-            'success' => 'Inventory dashboard activated successfully',
-            'failed' => 'Failed to activate inventory dashboard',
-        ], [
-            'log' => function ($dashboard) {
-                $this->logActivity('ACTIVATE', 'InventoryDashboard', "Activated inventory dashboard: {$dashboard->name}");
-            },
-        ]);
+        try {
+            $dashboard = InventoryDashboard::find($id);
+
+            if (!$dashboard) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Inventory dashboard not found',
+                    'data' => [],
+                ], 404);
+            }
+
+            $dashboard->update(['is_active' => true]);
+
+            $this->logActivity('ACTIVATE', 'InventoryDashboard', "Activated inventory dashboard: {$dashboard->name}");
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Inventory dashboard activated successfully',
+                'data' => $dashboard,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to activate inventory dashboard',
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
+            ], 500);
+        }
     }
 
     /**
@@ -608,15 +640,32 @@ class InventoryDashboardController extends Controller implements HasMiddleware
      */
     public function deactivate(string $id)
     {
-        return $this->setActiveState(InventoryDashboard::class, $id, false, [
-            'not_found' => 'Inventory dashboard not found',
-            'already' => 'Inventory dashboard is already inactive',
-            'success' => 'Inventory dashboard deactivated successfully',
-            'failed' => 'Failed to deactivate inventory dashboard',
-        ], [
-            'log' => function ($dashboard) {
-                $this->logActivity('DEACTIVATE', 'InventoryDashboard', "Deactivated inventory dashboard: {$dashboard->name}");
-            },
-        ]);
+        try {
+            $dashboard = InventoryDashboard::find($id);
+
+            if (!$dashboard) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Inventory dashboard not found',
+                    'data' => [],
+                ], 404);
+            }
+
+            $dashboard->update(['is_active' => false]);
+
+            $this->logActivity('DEACTIVATE', 'InventoryDashboard', "Deactivated inventory dashboard: {$dashboard->name}");
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Inventory dashboard deactivated successfully',
+                'data' => $dashboard,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to deactivate inventory dashboard',
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
+            ], 500);
+        }
     }
 }

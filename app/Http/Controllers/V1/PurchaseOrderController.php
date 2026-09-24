@@ -443,12 +443,13 @@ class PurchaseOrderController extends Controller implements HasMiddleware
     public function activate(string $id)
     {
         try {
-            $product = PurchaseOrder::query()->find($id);
+            $product = PurchaseOrder::find($id);
 
             if (!$product) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Purchase order not found',
+                    'data' => [],
                 ], 404);
             }
 
@@ -470,10 +471,7 @@ class PurchaseOrderController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Purchase order activated successfully',
-                'data' => [
-                    'id' => $product->id,
-                    'status' => $product->status,
-                ]
+                'data' => $product,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
@@ -490,12 +488,13 @@ class PurchaseOrderController extends Controller implements HasMiddleware
     public function deactivate(string $id)
     {
         try {
-            $product = PurchaseOrder::query()->find($id);
+            $product = PurchaseOrder::find($id);
 
             if (!$product) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Purchase order not found',
+                    'data' => [],
                 ], 404);
             }
 
@@ -526,10 +525,7 @@ class PurchaseOrderController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Purchase order deactivated successfully',
-                'data' => [
-                    'id' => $product->id,
-                    'status' => $product->status,
-                ]
+                'data' => $product,
             ]);
         } catch (\Throwable $th) {
             return response()->json([

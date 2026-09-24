@@ -17,12 +17,10 @@ use App\Services\SupplierProductService;
 use App\Http\Controllers\Controller;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
-use App\Traits\TogglesActiveStatus;
 
 class ProductController extends Controller implements HasMiddleware
 {
     use ActivityLogTrait;
-    use TogglesActiveStatus;
 
     /**
      * Define the middleware for permissions.
@@ -389,12 +387,7 @@ class ProductController extends Controller implements HasMiddleware
                     ];
                 });
 
-            // $product->purchase_price (via the model accessor) reflects the
-            // persisted column only. For this one endpoint we also want the
-            // GRN/supplier_products fallback for a brand-new product that has
-            // no persisted price yet — resolved separately, not written back
-            // onto the model (an accessor for 'purchase_price' already exists
-            // and would win over any raw attribute we tried to set here).
+
             $resolvedPrice = ProductPriceService::resolveCurrentPrice((int) $id);
 
             $priceHistory = \App\Models\ProductPriceHistory::where('product_id', $id)
@@ -403,9 +396,7 @@ class ProductController extends Controller implements HasMiddleware
                 ->take(20)
                 ->get(['id', 'unit_price', 'source_type', 'source_id', 'effective_date']);
 
-            // Every price history row today is sourced from a GRN receipt —
-            // resolve the human-readable GRN number so the report doesn't have
-            // to show the raw source_id.
+
             $grnSourceIds = $priceHistory->where('source_type', \App\Models\Grn::class)->pluck('source_id')->unique();
             $grnNumbersById = \App\Models\Grn::whereIn('id', $grnSourceIds)->pluck('grn_number', 'id');
 
@@ -422,11 +413,7 @@ class ProductController extends Controller implements HasMiddleware
                 ];
             });
 
-            // If the scanned QR encoded a per-unit serial number (see
-            // GrnsIndex.jsx sticker generators), resolve it to the exact
-            // physical unit's receiving record — this is what actually makes
-            // a scan unique, since product_id/variant_id alone is shared by
-            // every unit of that variant.
+
             $scannedUnit = null;
             if ($request->filled('serial')) {
                 $serialRecord = \App\Models\GrnItemSerial::where('product_id', $id)
@@ -468,8 +455,6 @@ class ProductController extends Controller implements HasMiddleware
                     'product' => $product,
                     'last_grn_unit_price' => $resolvedPrice,
                     'total_stock_in_hand' => floatval($totalStockInHand),
-                    // The three parts that make up the number above, so the UI
-                    // can show why it differs from the raw ledger balance.
                     'total_ledger_balance' => floatval($totalLedgerBalance),
                     'total_checked_out' => floatval($totalCheckedOut),
                     'total_assigned' => floatval($totalAssigned),
@@ -502,10 +487,6 @@ class ProductController extends Controller implements HasMiddleware
                 ->orderBy('serial_number')
                 ->get();
 
-            // Every assignment this product's serials have ever had, current
-            // and returned alike — a unit that changes hands contributes one
-            // row per holder, so the table reads as a history rather than a
-            // snapshot. Newest first within each serial.
             $assignmentsBySerial = \App\Models\ProductAssignment::whereIn('grn_item_serial_id', $serials->pluck('id'))
                 ->with(['user', 'assignedBranch', 'returnedBy'])
                 ->orderByDesc('issue_date')
@@ -516,8 +497,6 @@ class ProductController extends Controller implements HasMiddleware
             $rows = $serials->flatMap(function ($s) use ($assignmentsBySerial) {
                 $history = $assignmentsBySerial->get($s->id);
 
-                // Never assigned to anyone — still worth a row so the unit is
-                // visible as available stock.
                 if (! $history || $history->isEmpty()) {
                     return [[
                         'assignment_code' => null,
@@ -663,16 +642,12 @@ class ProductController extends Controller implements HasMiddleware
                 }
             }
 
-            // The variant layer is retired: SKU/barcode live on the product
-            // itself. Any `variants` array in the request is ignored, and
-            // existing product_variants rows are left untouched as read-only
-            // history for documents that still reference them.
+
             $data['is_variant'] = false;
             unset($data['variants']);
 
             $product->update($data);
 
-            // Auto-ensure the supplier_products pivot link when supplier_id is set
             if ($product->supplier_id) {
                 app(SupplierProductService::class)->ensureLinked(
                     (int) $product->supplier_id,
@@ -718,13 +693,8 @@ class ProductController extends Controller implements HasMiddleware
                 ], 404);
             }
 
-            // Prevent deletion if product is referenced in GRN items, PO items, stock ledgers, assignments, or returns
             $hasGrnItems = DB::table('grn_items')->where('product_id', $id)->exists();
-            // purchase_order_items points at product_variants.id, not products.id,
-            // so this has to resolve the product's variants first.
-            $hasPoItems = DB::table('purchase_order_items')
-                ->whereIn('variant_id', DB::table('product_variants')->where('product_id', $id)->select('id'))
-                ->exists();
+            $hasPoItems = DB::table('purchase_order_items')->where('product_id', $id)->exists();
             $hasStockLedger = DB::table('stock_ledger')->where('product_id', $id)->exists();
             $hasAssignments = DB::table('product_assignments')->where('product_variant_id', $id)->exists();
             // product_returns stores its line items as a JSON array of
@@ -782,21 +752,33 @@ class ProductController extends Controller implements HasMiddleware
      */
     public function toggleStatus(string $id)
     {
-        return $this->setActiveState(Product::class, $id, null, [
-            'not_found' => 'Product not found',
-            'success' => 'Product status updated successfully',
-            'failed' => 'Failed to toggle product status',
-        ], [
-            'data' => 'subset',
-            'raw_error' => true,
-            'log' => function ($product) {
-                Log::info('Product status toggled', [
-                    'user_id' => Auth::id(),
-                    'product_id' => $product->id,
-                    'new_status' => $product->is_active
-                ]);
-            },
-        ]);
+        try {
+            $product = Product::find($id);
+
+            if (!$product) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Product not found',
+                    'data' => [],
+                ], 404);
+            }
+
+            $product->update(['is_active' => !$product->is_active]);
+
+            $this->logActivity('TOGGLE_STATUS', 'Product', "Toggled status for product: {$product->product_name}");
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Product status updated successfully',
+                'data' => $product,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to toggle product status',
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
+            ], 500);
+        }
     }
 
     /**
@@ -804,18 +786,33 @@ class ProductController extends Controller implements HasMiddleware
      */
     public function activate(string $id)
     {
-        return $this->setActiveState(Product::class, $id, true, [
-            'not_found' => 'Product not found',
-            'already' => 'Product is already active',
-            'success' => 'Product activated successfully',
-            'failed' => 'Failed to activate product',
-        ], [
-            'already' => 'error',
-            'with' => ['brand', 'mainCategory', 'subCategory', 'measurement', 'unit', 'container', 'suppliers', 'variants'],
-            'log' => function ($product) {
-                $this->logActivity('ACTIVATE', 'Product', "Activated product: {$product->product_name}");
-            },
-        ]);
+        try {
+            $product = Product::find($id);
+
+            if (!$product) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Product not found',
+                    'data' => [],
+                ], 404);
+            }
+
+            $product->update(['is_active' => true]);
+
+            $this->logActivity('ACTIVATE', 'Product', "Activated product: {$product->product_name}");
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Product activated successfully',
+                'data' => $product,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to activate product',
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
+            ], 500);
+        }
     }
 
     /**
@@ -823,18 +820,33 @@ class ProductController extends Controller implements HasMiddleware
      */
     public function deactivate(string $id)
     {
-        return $this->setActiveState(Product::class, $id, false, [
-            'not_found' => 'Product not found',
-            'already' => 'Product is already inactive',
-            'success' => 'Product deactivated successfully',
-            'failed' => 'Failed to deactivate product',
-        ], [
-            'already' => 'error',
-            'with' => ['brand', 'mainCategory', 'subCategory', 'measurement', 'unit', 'container', 'suppliers', 'variants'],
-            'log' => function ($product) {
-                $this->logActivity('DEACTIVATE', 'Product', "Deactivated product: {$product->product_name}");
-            },
-        ]);
+        try {
+            $product = Product::find($id);
+
+            if (!$product) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Product not found',
+                    'data' => [],
+                ], 404);
+            }
+
+            $product->update(['is_active' => false]);
+
+            $this->logActivity('DEACTIVATE', 'Product', "Deactivated product: {$product->product_name}");
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Product deactivated successfully',
+                'data' => $product,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to deactivate product',
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
+            ], 500);
+        }
     }
 
 }

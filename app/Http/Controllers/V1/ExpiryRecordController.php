@@ -18,12 +18,10 @@ use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
-use App\Traits\TogglesActiveStatus;
 
 class ExpiryRecordController extends Controller implements HasMiddleware
 {
     use ActivityLogTrait;
-    use TogglesActiveStatus;
 
     public static function middleware(): array
     {
@@ -346,41 +344,63 @@ class ExpiryRecordController extends Controller implements HasMiddleware
 
      public function activate(string $id)
     {
-        return $this->setActiveState(ExpiryRecord::class, $id, true, [
-            'not_found' => 'Expiry record not found',
-            'already' => 'Expiry record is already active',
-            'success' => 'Expiry record activated successfully',
-            'failed' => 'Failed to activate expiry record',
-        ], [
-            'already' => 'error',
-            'data' => 'subset',
-            'raw_error' => true,
-            'log' => function ($expiryRecord) {
-                Log::info('Expiry record activated', [
-                    'user_id' => Auth::id(),
-                    'expiry_record_id' => $expiryRecord->id,
-                ]);
-            },
-        ]);
+        try {
+            $expiryRecord = ExpiryRecord::find($id);
+
+            if (! $expiryRecord) {
+                return response()->json([
+                    'status'  => 'error',
+                    'message' => 'Expiry record not found',
+                    'data'    => [],
+                ], 404);
+            }
+
+            $expiryRecord->update(['is_active' => true]);
+
+            $this->logActivity('ACTIVATE', 'Expiry Record', "Activated expiry record: {$expiryRecord->batch_number}");
+
+            return response()->json([
+                'status'  => 'success',
+                'message' => 'Expiry record activated successfully',
+                'data'    => $expiryRecord,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'Failed to activate expiry record',
+                'error'   => config('app.debug') ? $th->getMessage() : 'Internal server error',
+            ], 500);
+        }
     }
 
     public function deactivate(string $id)
     {
-        return $this->setActiveState(ExpiryRecord::class, $id, false, [
-            'not_found' => 'Expiry record not found',
-            'already' => 'Expiry record is already inactive',
-            'success' => 'Expiry record deactivated successfully',
-            'failed' => 'Failed to deactivate expiry record',
-        ], [
-            'already' => 'error',
-            'data' => 'subset',
-            'raw_error' => true,
-            'log' => function ($expiryRecord) {
-                Log::info('Expiry record deactivated', [
-                    'user_id' => Auth::id(),
-                    'expiry_record_id' => $expiryRecord->id,
-                ]);
-            },
-        ]);
+        try {
+            $expiryRecord = ExpiryRecord::find($id);
+
+            if (! $expiryRecord) {
+                return response()->json([
+                    'status'  => 'error',
+                    'message' => 'Expiry record not found',
+                    'data'    => [],
+                ], 404);
+            }
+
+            $expiryRecord->update(['is_active' => false]);
+
+            $this->logActivity('DEACTIVATE', 'Expiry Record', "Deactivated expiry record: {$expiryRecord->batch_number}");
+
+            return response()->json([
+                'status'  => 'success',
+                'message' => 'Expiry record deactivated successfully',
+                'data'    => $expiryRecord,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'Failed to deactivate expiry record',
+                'error'   => config('app.debug') ? $th->getMessage() : 'Internal server error',
+            ], 500);
+        }
     }
 }

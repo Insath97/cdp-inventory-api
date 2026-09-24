@@ -3,29 +3,28 @@
 namespace App\Http\Controllers\V1;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\CreateBranchRequest;
-use App\Http\Requests\UpdateBranchRequest;
-use App\Models\Branch;
+use App\Http\Requests\CreateEmployeeRequest;
+use App\Http\Requests\UpdateEmployeeRequest;
+use App\Models\Employee;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Support\Facades\DB;
 use App\Traits\ActivityLogTrait;
 
-class BranchController extends Controller implements HasMiddleware
+class EmployeeController extends Controller implements HasMiddleware
 {
     use ActivityLogTrait;
 
     public static function middleware(): array
     {
         return [
-            new Middleware('permission:Branch Index', only: ['index', 'show', 'getBranchList']),
-            new Middleware('permission:Branch Create', only: ['store']),
-            new Middleware('permission:Branch Update', only: ['update']),
-            new Middleware('permission:Branch Delete', only: ['destroy']),
-            new Middleware('permission:Branch Toggle Status', only: ['activate', 'deactivate', 'toggleStatus']),
+            new Middleware('permission:Employee Index', only: ['index', 'show']),
+            new Middleware('permission:Employee Create', only: ['store']),
+            new Middleware('permission:Employee Update', only: ['update']),
+            new Middleware('permission:Employee Delete', only: ['destroy']),
+            new Middleware('permission:Employee Toggle Status', only: ['activate', 'deactivate', 'toggleStatus']),
         ];
     }
 
@@ -36,9 +35,9 @@ class BranchController extends Controller implements HasMiddleware
     {
         try {
             $perPage = $request->get('per_page', 15);
-            $query = Branch::query();
+            $query = Employee::query();
 
-            if ($request->has('search') ) {
+            if ($request->has('search')) {
                 $query->search($request->search);
             }
 
@@ -46,22 +45,42 @@ class BranchController extends Controller implements HasMiddleware
                 $query->where('is_active', $request->boolean('is_active'));
             }
 
-            if ($request->has('city')) {
-                $query->where('city', $request->city);
-            }
-
             $query->orderBy('created_at', 'desc');
-            $branches = $query->paginate($perPage);
+            $employees = $query->paginate($perPage);
 
             return response()->json([
                 'status' => 'success',
-                'message' => 'Branches retrieved successfully',
-                'data' => $branches
+                'message' => 'Employees retrieved successfully',
+                'data' => $employees
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
-                'message' => 'Failed to retrieve branches',
+                'message' => 'Failed to retrieve employees',
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
+            ], 500);
+        }
+    }
+
+    /**
+     * Get a list of employees for dropdown/select options.
+     */
+    public function getList()
+    {
+        try {
+            $employees = Employee::where('is_active', true)
+                ->orderBy('full_name')
+                ->get(['id', 'employee_code', 'full_name', 'email']);
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Employees retrieved successfully',
+                'data' => $employees
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to retrieve employees',
                 'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
             ], 500);
         }
@@ -70,28 +89,31 @@ class BranchController extends Controller implements HasMiddleware
     /**
      * Store a newly created resource in storage.
      */
-    public function store(CreateBranchRequest $request)
+    public function store(CreateEmployeeRequest $request)
     {
         try {
             DB::beginTransaction();
 
             $data = $request->validated();
-            $branch = Branch::create($data);
+            if (empty($data['employee_code'])) {
+                $data['employee_code'] = Employee::generateCode();
+            }
+            $employee = Employee::create($data);
 
             DB::commit();
 
-            $this->logActivity('CREATE', 'Branch', "Created branch: {$branch->name} ({$branch->code})");
+            $this->logActivity('CREATE', 'Employee', "Created employee: {$employee->full_name}");
 
             return response()->json([
                 'status' => 'success',
-                'message' => 'Branch created successfully',
-                'data' => $branch
+                'message' => 'Employee created successfully',
+                'data' => $employee
             ], 201);
         } catch (\Throwable $th) {
             DB::rollBack();
             return response()->json([
                 'status' => 'error',
-                'message' => 'Failed to create branch',
+                'message' => 'Failed to create employee',
                 'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
             ], 500);
         }
@@ -103,25 +125,25 @@ class BranchController extends Controller implements HasMiddleware
     public function show(string $id)
     {
         try {
-            $branch = Branch::query()->find($id);
+            $employee = Employee::query()->find($id);
 
-            if (!$branch) {
+            if (!$employee) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Branch not found',
+                    'message' => 'Employee not found',
                     'data' => []
                 ], 404);
             }
 
             return response()->json([
                 'status' => 'success',
-                'message' => 'Branch retrieved successfully',
-                'data' => $branch
+                'message' => 'Employee retrieved successfully',
+                'data' => $employee
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
-                'message' => 'Failed to retrieve branch',
+                'message' => 'Failed to retrieve employee',
                 'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
             ], 500);
         }
@@ -130,15 +152,15 @@ class BranchController extends Controller implements HasMiddleware
     /**
      * Update the specified resource in storage.
      */
-    public function update(UpdateBranchRequest $request, string $id)
+    public function update(UpdateEmployeeRequest $request, string $id)
     {
         try {
-            $branch = Branch::query()->find($id);
+            $employee = Employee::query()->find($id);
 
-            if (!$branch) {
+            if (!$employee) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Branch not found',
+                    'message' => 'Employee not found',
                     'data' => []
                 ], 404);
             }
@@ -146,22 +168,22 @@ class BranchController extends Controller implements HasMiddleware
             DB::beginTransaction();
 
             $data = $request->validated();
-            $branch->update($data);
+            $employee->update($data);
 
             DB::commit();
 
-            $this->logActivity('UPDATE', 'Branch', "Updated branch: {$branch->name}");
+            $this->logActivity('UPDATE', 'Employee', "Updated employee: {$employee->full_name}");
 
             return response()->json([
                 'status' => 'success',
-                'message' => 'Branch updated successfully',
-                'data' => $branch
+                'message' => 'Employee updated successfully',
+                'data' => $employee
             ]);
         } catch (\Throwable $th) {
             DB::rollBack();
             return response()->json([
                 'status' => 'error',
-                'message' => 'Failed to update branch',
+                'message' => 'Failed to update employee',
                 'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
             ], 500);
         }
@@ -172,148 +194,138 @@ class BranchController extends Controller implements HasMiddleware
      */
     public function destroy(string $id)
     {
-         try {
-            $branch = Branch::query()->find($id);
-            if (! $branch) {
+        try {
+            $employee = Employee::query()->find($id);
+            if (!$employee) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Branch not found',
+                    'message' => 'Employee not found',
                     'data' => [],
                 ], 404);
             }
 
-            // Prevent deletion if branch is referenced in users, stock transfers, or purchase orders
-            $hasUsers = $branch->users()->exists();
-            $hasTransfers = DB::table('stock_transfers')->where('from_branch_id', $id)->orWhere('to_branch_id', $id)->exists();
-            $hasPOs = DB::table('purchase_orders')->where('branch_id', $id)->exists();
-
-            if ($hasUsers || $hasTransfers || $hasPOs) {
+            $title = $employee->full_name;
+            if (!Employee::destroy($id)) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Cannot delete branch because it is currently referenced by users or transactions.'
-                ], 422);
-            }
-
-            $title = $branch->name;
-            if (! Branch::destroy($id)) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Failed to soft delete branch',
+                    'message' => 'Failed to soft delete employee',
                 ], 500);
             }
 
-            $this->logActivity('SOFT_DELETE', 'Branch', "Soft deleted branch: {$title}");
+            $this->logActivity('SOFT_DELETE', 'Employee', "Soft deleted employee: {$title}");
 
             return response()->json([
                 'status' => 'success',
-                'message' => 'Branch soft deleted successfully',
+                'message' => 'Employee soft deleted successfully',
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
-                'message' => 'Failed to soft delete branch',
+                'message' => 'Failed to soft delete employee',
                 'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
 
     /**
-     * Activate the branch.
+     * Activate the employee.
      */
     public function activate(string $id)
     {
         try {
-            $branch = Branch::find($id);
+            $employee = Employee::find($id);
 
-            if (!$branch) {
+            if (!$employee) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Branch not found',
+                    'message' => 'Employee not found',
                     'data' => [],
                 ], 404);
             }
 
-            $branch->update(['is_active' => true]);
+            $employee->update(['is_active' => true]);
 
-            $this->logActivity('ACTIVATE', 'Branch', "Activated branch: {$branch->name}");
+            $this->logActivity('ACTIVATE', 'Employee', "Activated employee: {$employee->full_name}");
 
             return response()->json([
                 'status' => 'success',
-                'message' => 'Branch activated successfully',
-                'data' => $branch,
+                'message' => 'Employee activated successfully',
+                'data' => $employee,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
-                'message' => 'Failed to activate branch',
+                'message' => 'Failed to activate employee',
                 'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
 
     /**
-     * Deactivate the branch.
+     * Deactivate the employee.
      */
     public function deactivate(string $id)
     {
         try {
-            $branch = Branch::find($id);
+            $employee = Employee::find($id);
 
-            if (!$branch) {
+            if (!$employee) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Branch not found',
+                    'message' => 'Employee not found',
                     'data' => [],
                 ], 404);
             }
 
-            $branch->update(['is_active' => false]);
+            $employee->update(['is_active' => false]);
 
-            $this->logActivity('DEACTIVATE', 'Branch', "Deactivated branch: {$branch->name}");
+            $this->logActivity('DEACTIVATE', 'Employee', "Deactivated employee: {$employee->full_name}");
 
             return response()->json([
                 'status' => 'success',
-                'message' => 'Branch deactivated successfully',
-                'data' => $branch,
+                'message' => 'Employee deactivated successfully',
+                'data' => $employee,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
-                'message' => 'Failed to deactivate branch',
+                'message' => 'Failed to deactivate employee',
                 'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
 
+    /**
+     * Toggle the employee status.
+     */
     public function toggleStatus(string $id)
     {
         try {
-            $branch = Branch::find($id);
+            $employee = Employee::find($id);
 
-            if (!$branch) {
+            if (!$employee) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Branch not found',
+                    'message' => 'Employee not found',
                     'data' => [],
                 ], 404);
             }
 
-            $branch->update(['is_active' => !$branch->is_active]);
+            $employee->update(['is_active' => !$employee->is_active]);
 
-            $this->logActivity('TOGGLE_STATUS', 'Branch', "Toggled status for branch: {$branch->name}");
+            $this->logActivity('TOGGLE_STATUS', 'Employee', "Toggled status for employee: {$employee->full_name}");
 
             return response()->json([
                 'status' => 'success',
-                'message' => 'Branch status updated successfully',
-                'data' => $branch,
+                'message' => 'Employee status toggled successfully',
+                'data' => $employee,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
-                'message' => 'Failed to toggle branch status',
+                'message' => 'Failed to toggle employee status',
                 'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
 }
-

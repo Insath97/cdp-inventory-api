@@ -12,12 +12,10 @@ use App\Traits\ActivityLogTrait;
 use App\Http\Requests\CreateSupplierProductsRequest;
 use App\Http\Requests\UpdateSupplierProductsRequest;
 use App\Services\SupplierProductService;
-use App\Traits\TogglesActiveStatus;
 
 class SupplierProductsController extends Controller implements HasMiddleware
 {
     use ActivityLogTrait;
-    use TogglesActiveStatus;
 
      public static function middleware(): array
     {
@@ -244,18 +242,33 @@ class SupplierProductsController extends Controller implements HasMiddleware
      */
     public function activate(string $id)
     {
-        return $this->setActiveState(SupplierProduct::class, $id, true, [
-            'not_found' => 'Supplier product not found',
-            'already' => 'Supplier product is already active',
-            'success' => 'Supplier product activated successfully',
-            'failed' => 'Failed to activate supplier product',
-        ], [
-            'already' => 'error',
-            'data' => 'subset',
-            'log' => function ($supplierProduct) {
-                $this->logActivity('ACTIVATE', 'SupplierProduct', "Activated supplier product: {$supplierProduct->id}");
-            },
-        ]);
+        try {
+            $supplierProduct = SupplierProduct::find($id);
+
+            if (!$supplierProduct) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Supplier product not found',
+                    'data' => [],
+                ], 404);
+            }
+
+            $supplierProduct->update(['is_active' => true]);
+
+            $this->logActivity('ACTIVATE', 'SupplierProduct', "Activated supplier product: {$supplierProduct->id}");
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Supplier product activated successfully',
+                'data' => $supplierProduct,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to activate supplier product',
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
+            ], 500);
+        }
     }
 
     /**
@@ -263,16 +276,32 @@ class SupplierProductsController extends Controller implements HasMiddleware
      */
     public function deactivate(string $id)
     {
-        return $this->setActiveState(SupplierProduct::class, $id, false, [
-            'not_found' => 'Supplier product not found',
-            'already' => 'Supplier product is already inactive',
-            'success' => 'Supplier product deactivated successfully',
-            'failed' => 'Failed to deactivate supplier product',
-        ], [
-            'data' => 'subset',
-            'log' => function ($supplierProduct) {
-                $this->logActivity('DEACTIVATE', 'SupplierProduct', "Deactivated supplier product: {$supplierProduct->id}");
-            },
-        ]);
+        try {
+            $supplierProduct = SupplierProduct::find($id);
+
+            if (!$supplierProduct) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Supplier product not found',
+                    'data' => [],
+                ], 404);
+            }
+
+            $supplierProduct->update(['is_active' => false]);
+
+            $this->logActivity('DEACTIVATE', 'SupplierProduct', "Deactivated supplier product: {$supplierProduct->id}");
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Supplier product deactivated successfully',
+                'data' => $supplierProduct,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to deactivate supplier product',
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
+            ], 500);
+        }
     }
 }

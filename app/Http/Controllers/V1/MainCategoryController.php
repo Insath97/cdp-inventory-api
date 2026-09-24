@@ -13,12 +13,10 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use App\Traits\ActivityLogTrait;
-use App\Traits\TogglesActiveStatus;
 
 class MainCategoryController extends Controller implements HasMiddleware
 {
     use ActivityLogTrait;
-    use TogglesActiveStatus;
 
      public static function middleware(): array
     {
@@ -247,60 +245,94 @@ class MainCategoryController extends Controller implements HasMiddleware
 
     public function toggleStatus(string $id)
     {
-        return $this->setActiveState(MainCategory::class, $id, null, [
-            'not_found' => 'Main category not found',
-            'success' => 'Main category status updated successfully',
-            'failed' => 'Failed to toggle main category status',
-        ], [
-            'data' => 'subset',
-            'raw_error' => true,
-            'log' => function ($mainCategory) {
-                Log::info('Main category status toggled', [
-                    'user_id' => Auth::id(),
-                    'main_category_id' => $mainCategory->id,
-                    'new_status' => $mainCategory->is_active
-                ]);
-            },
-        ]);
+        try {
+            $mainCategory = MainCategory::find($id);
+
+            if (!$mainCategory) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Main category not found',
+                    'data' => [],
+                ], 404);
+            }
+
+            $mainCategory->update(['is_active' => !$mainCategory->is_active]);
+
+            $this->logActivity('TOGGLE_STATUS', 'MainCategory', "Toggled status for main category: {$mainCategory->name}");
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Main category status updated successfully',
+                'data' => $mainCategory,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to toggle main category status',
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
+            ], 500);
+        }
     }
 
      public function activate(string $id)
     {
-        return $this->setActiveState(MainCategory::class, $id, true, [
-            'not_found' => 'Main category not found',
-            'already' => 'Main category is already active',
-            'success' => 'Main category activated successfully',
-            'failed' => 'Failed to activate main category',
-        ], [
-            'already' => 'error',
-            'data' => 'subset',
-            'raw_error' => true,
-            'log' => function ($mainCategory) {
-                Log::info('Main category activated', [
-                    'user_id' => Auth::id(),
-                    'main_category_id' => $mainCategory->id,
-                ]);
-            },
-        ]);
+        try {
+            $mainCategory = MainCategory::find($id);
+
+            if (!$mainCategory) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Main category not found',
+                    'data' => [],
+                ], 404);
+            }
+
+            $mainCategory->update(['is_active' => true]);
+
+            $this->logActivity('ACTIVATE', 'MainCategory', "Activated main category: {$mainCategory->name}");
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Main category activated successfully',
+                'data' => $mainCategory,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to activate main category',
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
+            ], 500);
+        }
     }
 
     public function deactivate(string $id)
     {
-        return $this->setActiveState(MainCategory::class, $id, false, [
-            'not_found' => 'Main category not found',
-            'already' => 'Main category is already inactive',
-            'success' => 'Main category deactivated successfully',
-            'failed' => 'Failed to deactivate main category',
-        ], [
-            'already' => 'error',
-            'data' => 'subset',
-            'raw_error' => true,
-            'log' => function ($mainCategory) {
-                Log::info('Main category deactivated', [
-                    'user_id' => Auth::id(),
-                    'main_category_id' => $mainCategory->id,
-                ]);
-            },
-        ]);
+        try {
+            $mainCategory = MainCategory::find($id);
+
+            if (!$mainCategory) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Main category not found',
+                    'data' => [],
+                ], 404);
+            }
+
+            $mainCategory->update(['is_active' => false]);
+
+            $this->logActivity('DEACTIVATE', 'MainCategory', "Deactivated main category: {$mainCategory->name}");
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Main category deactivated successfully',
+                'data' => $mainCategory,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to deactivate main category',
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
+            ], 500);
+        }
     }
 }

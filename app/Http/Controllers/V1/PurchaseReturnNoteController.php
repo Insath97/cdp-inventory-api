@@ -20,12 +20,10 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use App\Models\User;
 use App\Services\NotificationRecipientService;
-use App\Traits\TogglesActiveStatus;
 
 class PurchaseReturnNoteController extends Controller implements HasMiddleware
 {
     use ActivityLogTrait;
-    use TogglesActiveStatus;
 
     public static function middleware(): array
     {
@@ -504,17 +502,33 @@ class PurchaseReturnNoteController extends Controller implements HasMiddleware
      */
     public function activate(string $id)
     {
-        return $this->setActiveState(PurchaseReturnNote::class, $id, true, [
-            'not_found' => 'Purchase return note not found',
-            'already' => 'Purchase return note is already active',
-            'success' => 'Purchase return note activated successfully',
-            'failed' => 'Failed to activate product',
-        ], [
-            'data' => 'subset',
-            'log' => function ($product) {
-                $this->logActivity('ACTIVATE', 'PurchaseReturnNote', "Activated purchase return note: {$product->id}");
-            },
-        ]);
+        try {
+            $product = PurchaseReturnNote::find($id);
+
+            if (! $product) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Purchase return note not found',
+                    'data' => [],
+                ], 404);
+            }
+
+            $product->update(['is_active' => true]);
+
+            $this->logActivity('ACTIVATE', 'PurchaseReturnNote', "Activated purchase return note: {$product->id}");
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Purchase return note activated successfully',
+                'data' => $product,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to activate product',
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
+            ], 500);
+        }
     }
 
     /**
@@ -522,16 +536,32 @@ class PurchaseReturnNoteController extends Controller implements HasMiddleware
      */
     public function deactivate(string $id)
     {
-        return $this->setActiveState(PurchaseReturnNote::class, $id, false, [
-            'not_found' => 'Purchase return note not found',
-            'already' => 'Purchase return note is already inactive',
-            'success' => 'Purchase return note deactivated successfully',
-            'failed' => 'Failed to deactivate purchase return note',
-        ], [
-            'data' => 'subset',
-            'log' => function ($product) {
-                $this->logActivity('DEACTIVATE', 'PurchaseReturnNote', "Deactivated purchase return note: {$product->id}");
-            },
-        ]);
+        try {
+            $product = PurchaseReturnNote::find($id);
+
+            if (! $product) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Purchase return note not found',
+                    'data' => [],
+                ], 404);
+            }
+
+            $product->update(['is_active' => false]);
+
+            $this->logActivity('DEACTIVATE', 'PurchaseReturnNote', "Deactivated purchase return note: {$product->id}");
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Purchase return note deactivated successfully',
+                'data' => $product,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to deactivate purchase return note',
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
+            ], 500);
+        }
     }
 }

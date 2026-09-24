@@ -12,11 +12,11 @@ use Spatie\Permission\Models\Permission;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
-use App\Traits\TogglesActiveStatus;
+use App\Traits\ActivityLogTrait;
 
 class PermissionController extends Controller implements HasMiddleware
 {
-    use TogglesActiveStatus;
+    use ActivityLogTrait;
 
     public static function middleware(): array
     {
@@ -241,21 +241,32 @@ class PermissionController extends Controller implements HasMiddleware
 
      public function activate(string $id)
     {
-        return $this->setActiveState(Permission::class, $id, true, [
-            'not_found' => 'Permission not found',
-            'already' => 'Permission is already active',
-            'success' => 'Permission activated successfully',
-            'failed' => 'Failed to activate permission',
-        ], [
-            'already' => 'error',
-            'data' => 'subset',
-            'raw_error' => true,
-            'log' => function ($permission) {
-                Log::info('Permission activated', [
-                    'user_id' => Auth::id(),
-                    'permission_id' => $permission->id,
-                ]);
-            },
-        ]);
+        try {
+            $permission = Permission::find($id);
+
+            if (!$permission) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Permission not found',
+                    'data' => [],
+                ], 404);
+            }
+
+            $permission->update(['is_active' => true]);
+
+            $this->logActivity('ACTIVATE', 'Permission', "Activated permission: {$permission->name}");
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Permission activated successfully',
+                'data' => $permission,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to activate permission',
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
+            ], 500);
+        }
     }
 }

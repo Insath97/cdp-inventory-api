@@ -11,13 +11,10 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use App\Traits\ActivityLogTrait;
-use App\Traits\TogglesActiveStatus;
-
 
 class PurchaseOrderItemController extends Controller implements HasMiddleware
 {
     use ActivityLogTrait;
-    use TogglesActiveStatus;
 
      public static function middleware(): array
     {
@@ -236,18 +233,33 @@ class PurchaseOrderItemController extends Controller implements HasMiddleware
      */
     public function activate(string $id)
     {
-        return $this->setActiveState(PurchaseOrderItem::class, $id, true, [
-            'not_found' => 'Purchase order item not found',
-            'already' => 'Purchase order item is already active',
-            'success' => 'Purchase order item activated successfully',
-            'failed' => 'Failed to activate purchase order item',
-        ], [
-            'already' => 'error',
-            'data' => 'subset',
-            'log' => function ($purchaseOrderItem) {
-                $this->logActivity('ACTIVATE', 'PurchaseOrderItem', "Activated purchase order item: {$purchaseOrderItem->id}");
-            },
-        ]);
+        try {
+            $purchaseOrderItem = PurchaseOrderItem::find($id);
+
+            if (!$purchaseOrderItem) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Purchase order item not found',
+                    'data' => [],
+                ], 404);
+            }
+
+            $purchaseOrderItem->update(['is_active' => true]);
+
+            $this->logActivity('ACTIVATE', 'PurchaseOrderItem', "Activated purchase order item: {$purchaseOrderItem->id}");
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Purchase order item activated successfully',
+                'data' => $purchaseOrderItem,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to activate purchase order item',
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
+            ], 500);
+        }
     }
 
     /**
@@ -255,17 +267,33 @@ class PurchaseOrderItemController extends Controller implements HasMiddleware
      */
     public function deactivate(string $id)
     {
-        return $this->setActiveState(PurchaseOrderItem::class, $id, false, [
-            'not_found' => 'Purchase order item not found',
-            'already' => 'Purchase order item is already inactive',
-            'success' => 'Purchase order item deactivated successfully',
-            'failed' => 'Failed to deactivate purchase order item',
-        ], [
-            'data' => 'subset',
-            'log' => function ($purchaseOrderItem) {
-                $this->logActivity('DEACTIVATE', 'PurchaseOrderItem', "Deactivated purchase order item: {$purchaseOrderItem->id}");
-            },
-        ]);
+        try {
+            $purchaseOrderItem = PurchaseOrderItem::find($id);
+
+            if (!$purchaseOrderItem) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Purchase order item not found',
+                    'data' => [],
+                ], 404);
+            }
+
+            $purchaseOrderItem->update(['is_active' => false]);
+
+            $this->logActivity('DEACTIVATE', 'PurchaseOrderItem', "Deactivated purchase order item: {$purchaseOrderItem->id}");
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Purchase order item deactivated successfully',
+                'data' => $purchaseOrderItem,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to deactivate purchase order item',
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
+            ], 500);
+        }
     }
 
 

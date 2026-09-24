@@ -14,12 +14,10 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
 use App\Traits\ActivityLogTrait;
-use App\Traits\TogglesActiveStatus;
 
 class RoleController extends Controller implements HasMiddleware
 {
     use ActivityLogTrait;
-    use TogglesActiveStatus;
 
     public static function middleware(): array
     {
@@ -269,31 +267,10 @@ class RoleController extends Controller implements HasMiddleware
 
      public function activate(string $id)
     {
-        return $this->setActiveState(Role::class, $id, true, [
-            'not_found' => 'Role not found',
-            'already' => 'Role is already active',
-            'success' => 'Role activated successfully',
-            'failed' => 'Failed to activate role',
-        ], [
-            'already' => 'error',
-            'data' => 'subset',
-            'raw_error' => true,
-            'log' => function ($role) {
-                Log::info('Role activated', [
-                    'user_id' => Auth::id(),
-                    'role_id' => $role->id,
-                ]);
-            },
-        ]);
-    }
-
-
-     public function deactivate(string $id)
-    {
         try {
-            $role = Role::query()->find($id);
+            $role = Role::find($id);
 
-            if (! $role) {
+            if (!$role) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Role not found',
@@ -301,28 +278,46 @@ class RoleController extends Controller implements HasMiddleware
                 ], 404);
             }
 
-            if (! $role->is_active) {
+            $role->update(['is_active' => true]);
+
+            $this->logActivity('ACTIVATE', 'Role', "Activated role: {$role->name}");
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Role activated successfully',
+                'data' => $role,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to activate role',
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
+            ], 500);
+        }
+    }
+
+
+     public function deactivate(string $id)
+    {
+        try {
+            $role = Role::find($id);
+
+            if (!$role) {
                 return response()->json([
-                    'status' => 'success',
-                    'message' => 'Role is already inactive',
-                    'data' => [
-                        'id' => $role->id,
-                        'is_active' => (bool) $role->is_active,
-                    ],
-                ]);
+                    'status' => 'error',
+                    'message' => 'Role not found',
+                    'data' => [],
+                ], 404);
             }
 
-            $role->update(['is_active' => 0]);
+            $role->update(['is_active' => false]);
 
-            $this->logActivity('DEACTIVATE', 'Role', "Deactivated role: {$role->id}");
+            $this->logActivity('DEACTIVATE', 'Role', "Deactivated role: {$role->name}");
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Role deactivated successfully',
-                'data' => [
-                    'id' => $role->id,
-                    'is_active' => (bool) $role->is_active,
-                ],
+                'data' => $role,
             ]);
         } catch (\Throwable $th) {
             return response()->json([

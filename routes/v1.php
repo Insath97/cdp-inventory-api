@@ -24,6 +24,7 @@ use App\Http\Controllers\V1\NotificationController;
 use App\Http\Controllers\V1\PaymentController;
 use App\Http\Controllers\V1\InventoryDashboardController;
 use App\Http\Controllers\V1\ActivityLogController;
+use App\Http\Controllers\V1\EmployeeController;
 use Illuminate\Support\Facades\Route;
 
 /* public routes */
@@ -260,4 +261,11 @@ Route::middleware(['auth:api', 'throttle:300,1'])->prefix('v1')->group(function 
 
     // Stock Take Items
     Route::apiResource('stock-take-items', \App\Http\Controllers\V1\StockTakeItemController::class);
+
+    // Employees
+    Route::get('employees/list', [EmployeeController::class, 'getList']);
+    Route::apiResource('employees', EmployeeController::class);
+    Route::patch('employees/{id}/toggle-status', [EmployeeController::class, 'toggleStatus']);
+    Route::patch('employees/{id}/activate', [EmployeeController::class, 'activate']);
+    Route::patch('employees/{id}/deactivate', [EmployeeController::class, 'deactivate']);
 });

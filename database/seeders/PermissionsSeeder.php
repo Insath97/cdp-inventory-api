@@ -52,6 +52,14 @@ class PermissionsSeeder extends Seeder
             ['name' => 'Branch Delete', 'group_name' => 'Branch Management Permissions'],
             ['name' => 'Branch Toggle Status', 'group_name' => 'Branch Management Permissions'],
 
+            /* Employee Management */
+            ['name' => 'Employee Index', 'group_name' => 'Employee Management Permissions'],
+            ['name' => 'Employee Show', 'group_name' => 'Employee Management Permissions'],
+            ['name' => 'Employee Create', 'group_name' => 'Employee Management Permissions'],
+            ['name' => 'Employee Update', 'group_name' => 'Employee Management Permissions'],
+            ['name' => 'Employee Delete', 'group_name' => 'Employee Management Permissions'],
+            ['name' => 'Employee Toggle Status', 'group_name' => 'Employee Management Permissions'],
+
             /* Reporting Manager Management */
             ['name' => 'Reporting Manager Index', 'group_name' => 'Reporting Manager Management Permissions'],
             ['name' => 'Reporting Manager Show', 'group_name' => 'Reporting Manager Management Permissions'],
@@ -418,6 +426,7 @@ class PermissionsSeeder extends Seeder
                 'User Management Permissions',
                 'Branch Management Permissions',
                 'Reporting Manager Management Permissions',
+                'Employee Management Permissions',
                 'Main Category Management Permissions',
                 'Sub Category Management Permissions',
                 'Brand Management Permissions',

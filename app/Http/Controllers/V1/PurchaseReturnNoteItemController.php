@@ -240,7 +240,7 @@ class PurchaseReturnNoteItemController extends Controller implements HasMiddlewa
     public function activate(string $id)
     {
         try {
-            $prnItem = PurchaseReturnNoteItem::query()->find($id);
+            $prnItem = PurchaseReturnNoteItem::find($id);
 
             if (! $prnItem) {
                 return response()->json([
@@ -250,28 +250,14 @@ class PurchaseReturnNoteItemController extends Controller implements HasMiddlewa
                 ], 404);
             }
 
-            if ($prnItem->is_active) {
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'Purchase return note item already active',
-                    'data' => [
-                        'id' => $prnItem->id,
-                        'is_active' => (bool) $prnItem->is_active,
-                    ],
-                ]);
-            }
-
-            $prnItem->update(['is_active' => 1]);
+            $prnItem->update(['is_active' => true]);
 
             $this->logActivity('ACTIVATE', 'PurchaseReturnNoteItem', "Activated PRN item: {$prnItem->id}");
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Purchase return note item activated successfully',
-                'data' => [
-                    'id' => $prnItem->id,
-                    'is_active' => (bool) $prnItem->is_active,
-                ],
+                'data' => $prnItem,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
@@ -288,7 +274,7 @@ class PurchaseReturnNoteItemController extends Controller implements HasMiddlewa
     public function deactivate(string $id)
     {
         try {
-            $prnItem = PurchaseReturnNoteItem::query()->find($id);
+            $prnItem = PurchaseReturnNoteItem::find($id);
 
             if (! $prnItem) {
                 return response()->json([
@@ -298,28 +284,14 @@ class PurchaseReturnNoteItemController extends Controller implements HasMiddlewa
                 ], 404);
             }
 
-            if (! $prnItem->is_active) {
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'Purchase return note item already inactive',
-                    'data' => [
-                        'id' => $prnItem->id,
-                        'is_active' => (bool) $prnItem->is_active,
-                    ],
-                ]);
-            }
-
-            $prnItem->update(['is_active' => 0]);
+            $prnItem->update(['is_active' => false]);
 
             $this->logActivity('DEACTIVATE', 'PurchaseReturnNoteItem', "Deactivated PRN item: {$prnItem->id}");
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Purchase return note item deactivated successfully',
-                'data' => [
-                    'id' => $prnItem->id,
-                    'is_active' => (bool) $prnItem->is_active,
-                ],
+                'data' => $prnItem,
             ]);
         } catch (\Throwable $th) {
             return response()->json([

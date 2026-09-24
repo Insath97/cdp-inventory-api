@@ -19,12 +19,10 @@ use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
-use App\Traits\TogglesActiveStatus;
 
 class GrnItemController extends Controller implements HasMiddleware
 {
     use ActivityLogTrait;
-    use TogglesActiveStatus;
 
     public static function middleware(): array
     {
@@ -735,40 +733,64 @@ class GrnItemController extends Controller implements HasMiddleware
 
      public function activate(string $id)
     {
-        return $this->setActiveState(GrnItem::class, $id, true, [
-            'not_found' => 'GRN item not found',
-            'already' => 'GRN item is already active',
-            'success' => 'GRN item activated successfully',
-            'failed' => 'Failed to activate GRN item',
-        ], [
-            'data' => 'subset',
-            'raw_error' => true,
-            'log' => function ($grnItem) {
-                Log::info('GRN item activated', [
-                    'user_id' => Auth::id(),
-                    'grn_item_id' => $grnItem->id,
-                ]);
-            },
-        ]);
+        try {
+            $grnItem = GrnItem::find($id);
+
+            if (! $grnItem) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'GRN item not found',
+                    'data' => [],
+                ], 404);
+            }
+
+            $grnItem->update(['is_active' => true]);
+
+            $this->logActivity('ACTIVATE', 'GrnItem', "Activated GRN item: {$grnItem->id}");
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'GRN item activated successfully',
+                'data' => $grnItem,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to activate GRN item',
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
+            ], 500);
+        }
     }
 
 
     public function deactivate(string $id)
     {
-        return $this->setActiveState(GrnItem::class, $id, false, [
-            'not_found' => 'GRN item not found',
-            'already' => 'GRN item is already inactive',
-            'success' => 'GRN item deactivated successfully',
-            'failed' => 'Failed to deactivate GRN item',
-        ], [
-            'data' => 'subset',
-            'raw_error' => true,
-            'log' => function ($grnItem) {
-                Log::info('GRN item deactivated', [
-                    'user_id' => Auth::id(),
-                    'grn_item_id' => $grnItem->id,
-                ]);
-            },
-        ]);
+        try {
+            $grnItem = GrnItem::find($id);
+
+            if (! $grnItem) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'GRN item not found',
+                    'data' => [],
+                ], 404);
+            }
+
+            $grnItem->update(['is_active' => false]);
+
+            $this->logActivity('DEACTIVATE', 'GrnItem', "Deactivated GRN item: {$grnItem->id}");
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'GRN item deactivated successfully',
+                'data' => $grnItem,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to deactivate GRN item',
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
+            ], 500);
+        }
     }
 }

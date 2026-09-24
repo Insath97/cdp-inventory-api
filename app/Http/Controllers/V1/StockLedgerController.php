@@ -14,12 +14,10 @@ use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
-use App\Traits\TogglesActiveStatus;
 
 class StockLedgerController extends Controller implements HasMiddleware
 {
     use ActivityLogTrait;
-    use TogglesActiveStatus;
 
     public static function middleware(): array
     {
@@ -442,31 +440,10 @@ class StockLedgerController extends Controller implements HasMiddleware
 
      public function activate(string $id)
     {
-        return $this->setActiveState(StockLedger::class, $id, true, [
-            'not_found' => 'Stock ledger entry not found',
-            'already' => 'Stock ledger entry is already active',
-            'success' => 'Stock ledger entry activated successfully',
-            'failed' => 'Failed to activate stock ledger entry',
-        ], [
-            'already' => 'error',
-            'data' => 'subset',
-            'raw_error' => true,
-            'log' => function ($stockLedger) {
-                Log::info('Stock ledger entry activated', [
-                    'user_id' => Auth::id(),
-                    'stock_ledger_id' => $stockLedger->id,
-                ]);
-            },
-        ]);
-    }
-
-
-     public function deactivate(string $id)
-    {
         try {
-            $stockLedger = StockLedger::query()->find($id);
+            $stockLedger = StockLedger::find($id);
 
-            if (! $stockLedger) {
+            if (!$stockLedger) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Stock ledger entry not found',
@@ -474,28 +451,46 @@ class StockLedgerController extends Controller implements HasMiddleware
                 ], 404);
             }
 
-            if (! $stockLedger->is_active) {
+            $stockLedger->update(['is_active' => true]);
+
+            $this->logActivity('ACTIVATE', 'StockLedger', "Activated stock ledger entry: {$stockLedger->id}");
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Stock ledger entry activated successfully',
+                'data' => $stockLedger,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to activate stock ledger entry',
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
+            ], 500);
+        }
+    }
+
+
+     public function deactivate(string $id)
+    {
+        try {
+            $stockLedger = StockLedger::find($id);
+
+            if (!$stockLedger) {
                 return response()->json([
-                    'status' => 'success',
-                    'message' => 'Stock ledger entry already inactive',
-                    'data' => [
-                        'id' => $stockLedger->id,
-                        'is_active' => (bool) $stockLedger->is_active,
-                    ],
-                ]);
+                    'status' => 'error',
+                    'message' => 'Stock ledger entry not found',
+                    'data' => [],
+                ], 404);
             }
 
-            $stockLedger->update(['is_active' => 0]);
+            $stockLedger->update(['is_active' => false]);
 
             $this->logActivity('DEACTIVATE', 'StockLedger', "Deactivated stock ledger entry: {$stockLedger->id}");
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Stock ledger entry deactivated successfully',
-                'data' => [
-                    'id' => $stockLedger->id,
-                    'is_active' => (bool) $stockLedger->is_active,
-                ],
+                'data' => $stockLedger,
             ]);
         } catch (\Throwable $th) {
             return response()->json([

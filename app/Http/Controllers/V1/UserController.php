@@ -571,7 +571,8 @@ class UserController extends Controller implements HasMiddleware
             if (!$user) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'User not found'
+                    'message' => 'User not found',
+                    'data' => [],
                 ], 404);
             }
 
@@ -599,14 +600,7 @@ class UserController extends Controller implements HasMiddleware
                 }
             }
 
-            $user->is_active = !$user->is_active;
-            $user->save();
-
-            Log::info('User status toggled', [
-                'admin_id' => Auth::id(),
-                'target_user_id' => $user->id,
-                'new_status' => $user->is_active
-            ]);
+            $user->update(['is_active' => !$user->is_active]);
 
             $status = $user->is_active ? 'Activated' : 'Deactivated';
             $this->logActivity('UPDATE', 'User', "{$status} user: {$user->name} ({$user->email})");
@@ -614,16 +608,13 @@ class UserController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'User status updated successfully',
-                'data' => [
-                    'id' => $user->id,
-                    'is_active' => $user->is_active
-                ]
+                'data' => $user,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to toggle user status',
-                'error' => $th->getMessage()
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
