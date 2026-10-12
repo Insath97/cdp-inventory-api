@@ -13,32 +13,23 @@ class InventoryAlertNotification extends Notification
     {
     }
 
+    /**
+     * In-app only. This notification used to also go out over the 'mail'
+     * channel, which meant every $user->notify() in the app silently emailed
+     * the recipient -- and for the events that already send an explicit
+     * Mailable (stock transfer, stock take, check in/out, damage, branch
+     * request) that was a second, duplicate mail for the same event.
+     * Anything that genuinely needs an email sends one via Mail::to() at the
+     * call site instead.
+     */
     public function via(object $notifiable): array
     {
-        if (!empty($this->payload['is_reminder'])) {
-            return ['database'];
-        }
-        return ['database', 'mail'];
+        return ['database'];
     }
 
     public function toDatabase(object $notifiable): array
     {
         return $this->payload;
-    }
-
-    public function toMail(object $notifiable): \Illuminate\Notifications\Messages\MailMessage
-    {
-        $title = $this->payload['title'] ?? 'Inventory Alert';
-        $message = $this->payload['message'] ?? 'An inventory event has occurred.';
-        $url = $this->payload['url'] ?? '/dashboard';
-        $frontendUrl = rtrim(config('app.frontend_url'), '/');
-
-        return (new \Illuminate\Notifications\Messages\MailMessage)
-            ->subject('CDP Inventory: ' . $title)
-            ->greeting('Hello ' . ($notifiable->name ?? 'User') . ',')
-            ->line($message)
-            ->action('View Details', $frontendUrl . '/' . ltrim($url, '/'))
-            ->line('Thank you for using our application!');
     }
 
     public function toArray(object $notifiable): array

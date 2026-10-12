@@ -2,11 +2,7 @@
 
 namespace App\Http\Requests;
 
-use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Contracts\Validation\Validator;
-use Illuminate\Http\Exceptions\HttpResponseException;
-
-class CreateProductRequest extends FormRequest
+class CreateProductRequest extends BaseFormRequest
 {
     /**
      * Determine if the user is authorized to make this request.
@@ -59,6 +55,8 @@ class CreateProductRequest extends FormRequest
             'container_id' => 'nullable|exists:containers,id',
             'supplier_id' => 'nullable|exists:suppliers,id',
             'product_code' => 'required|string|max:255|unique:products,product_code',
+            'sku' => 'nullable|string|max:255|unique:products,sku',
+            'barcode' => 'nullable|string|max:255|unique:products,barcode',
             'id_number' => 'nullable|string|max:255',
             'product_name' => 'required|string|max:255',
             'slug' => 'nullable|string|max:255|unique:products,slug',
@@ -68,50 +66,10 @@ class CreateProductRequest extends FormRequest
             'is_default' => 'boolean',
             'is_pending_setup' => 'nullable|boolean',
             'track_serial_numbers' => 'boolean',
-
-            'variants' => 'nullable|array',
-            'variants.*.variant_name' => 'nullable|string|max:255',
-            'variants.*.supplier_id' => 'nullable|exists:suppliers,id',
-            'variants.*.sku' => 'required|string|max:255|distinct|unique:product_variants,sku',
-            'variants.*.code' => 'nullable|string|max:255',
-            'variants.*.barcode' => 'required|string|max:255|distinct|unique:product_variants,barcode',
-            'variants.*.color' => 'nullable|string|max:255',
-            'variants.*.size' => 'nullable|string|max:255',
-            'variants.*.material' => 'nullable|string|max:255',
-            'variants.*.style' => 'nullable|string|max:255',
-            'variants.*.description' => 'nullable|string',
-            'variants.*.is_default' => 'boolean',
-            'variants.*.is_active' => 'boolean',
-            'variants.*.brand_id' => 'nullable|exists:brands,id',
-            'variants.*.main_category_id' => 'nullable|exists:main_categories,id',
-            'variants.*.sub_category_id' => 'nullable|exists:sub_categories,id',
-            'variants.*.measurement_id' => 'nullable|exists:measurement_units,id',
-            'variants.*.unit_id' => 'nullable|exists:units,id',
-            'variants.*.container_id' => 'nullable|exists:containers,id',
         ];
 
         $rules['product_type'] = 'nullable|string|in:IT,Admin';
 
         return $rules;
-    }
-
-    protected function failedValidation(Validator $validator)
-    {
-        $errorMessages = $validator->errors();
-        $fieldErrors = collect($errorMessages->getMessages())->map(function ($messages, $field) {
-            return [
-                'field' => $field,
-                'messages' => $messages,
-            ];
-        })->values();
-
-        $message = $fieldErrors->count() > 1
-            ? 'There are multiple validation errors. Please review the form and correct the issues.'
-            : 'There is an issue with the input for ' . $fieldErrors->first()['field'] . '.';
-
-        throw new HttpResponseException(response()->json([
-            'message' => $message,
-            'errors' => $fieldErrors,
-        ], 422));
     }
 }

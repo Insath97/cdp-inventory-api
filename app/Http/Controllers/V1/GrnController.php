@@ -211,23 +211,10 @@ class GrnController extends Controller implements HasMiddleware
                     'url' => '/grns/' . $grn->id,
                 ]);
 
-                $grnPermissions = ['Grn Index', 'Grn Update', 'Grn View All'];
                 $recipientService = app(NotificationRecipientService::class);
-                $targets = $recipientService->usersByPermissions($grnPermissions);
 
-                $notifiedUserIds = [];
-
-                foreach ($targets as $targetUser) {
-                    $targetUser->notify($notification);
-                    $notifiedUserIds[] = $targetUser->id;
-                }
-
-                // Identify and Notify Creator's Reporting Manager if not already notified
-                if ($creator) {
-                    $reportingManagerUser = $recipientService->reportingManagerOf($creator, $grnPermissions);
-                    if ($reportingManagerUser && !in_array($reportingManagerUser->id, $notifiedUserIds)) {
-                        $reportingManagerUser->notify($notification);
-                    }
+                foreach ($recipientService->actorAndReportingManager($creator) as $target) {
+                    $target->notify($notification);
                 }
             } catch (\Throwable $notifyErr) {
                 Log::error('Failed to send GRN creation notification to reporting manager: ' . $notifyErr->getMessage());
@@ -322,11 +309,10 @@ class GrnController extends Controller implements HasMiddleware
                 );
                 $data['bill_image'] = $imagePath;
             } else {
-                if (isset($data['bill_image']) && is_string($data['bill_image']) && !empty($data['bill_image'])) {
-                    $data['bill_image'] = $data['bill_image'];
-                } else {
-                    unset($data['bill_image']);
-                }
+                // A string here is a client-echoed (or attacker-planted) path.
+                // Dropping it keeps the existing bill_image untouched — only
+                // handleFileUpload may ever write this column.
+                unset($data['bill_image']);
             }
 
             unset($data['created_by']);

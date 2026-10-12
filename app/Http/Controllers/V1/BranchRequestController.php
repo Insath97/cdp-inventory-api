@@ -27,6 +27,7 @@ class BranchRequestController extends Controller implements HasMiddleware
             new Middleware('permission:Branch Request Create', only: ['store']),
             new Middleware('permission:Branch Request Update', only: ['update']),
             new Middleware('permission:Branch Request Delete', only: ['destroy']),
+            new Middleware('permission:Branch Request Toggle Status', only: ['toggleStatus', 'activate', 'deactivate']),
         ];
     }
 
@@ -81,17 +82,24 @@ class BranchRequestController extends Controller implements HasMiddleware
 
             $this->logActivity('CREATE', 'BranchRequest', "Created branch request: {$branchRequest->request_no}");
 
-            $recipientService = app(NotificationRecipientService::class);
-            $admins = $recipientService->adminsAndSuperAdmins($branchRequest->branch_id);
-            foreach ($admins as $admin) {
-                if ($admin->email) {
-                    \Illuminate\Support\Facades\Mail::to($admin->email)->send(new \App\Mail\BranchRequestMail($branchRequest, 'created'));
-                }
-            }
+            try {
+                $recipientService = app(NotificationRecipientService::class);
+                $notification = new \App\Notifications\InventoryAlertNotification([
+                    'title' => 'Branch Request Created',
+                    'message' => 'Branch request ' . $branchRequest->request_no . ' has been created and is awaiting approval.',
+                    'type' => 'branch_request_created',
+                    'module' => 'branch-requests',
+                    'priority' => 'medium',
+                    'reference_id' => $branchRequest->id,
+                    'reference_type' => BranchRequest::class,
+                    'url' => '/branch-requests/' . $branchRequest->id,
+                ]);
 
-            $reportingManager = $recipientService->reportingManagerOf(Auth::user(), ['Branch Request Update']);
-            if ($reportingManager && $reportingManager->email && !$admins->contains('id', $reportingManager->id)) {
-                \Illuminate\Support\Facades\Mail::to($reportingManager->email)->send(new \App\Mail\BranchRequestMail($branchRequest, 'created'));
+                foreach ($recipientService->actorAndReportingManager(Auth::user()) as $target) {
+                    $target->notify($notification);
+                }
+            } catch (\Throwable $notifyErr) {
+                Log::error('Failed to send Branch Request creation notification: ' . $notifyErr->getMessage());
             }
 
             return response()->json([
@@ -166,14 +174,13 @@ class BranchRequestController extends Controller implements HasMiddleware
 
             $this->logActivity('UPDATE', 'BranchRequest', "Updated branch request: {$branchRequest->request_no}");
 
-            // Notify and email the Manager who requested it
+            // Notify the Manager who requested it, and their reporting manager
             $requester = User::find($branchRequest->requested_by);
             if ($requester) {
                 $statusText = ucfirst($branchRequest->status);
 
-                // 1. In-App System Notification
                 try {
-                    $requester->notify(new \App\Notifications\InventoryAlertNotification([
+                    $notification = new \App\Notifications\InventoryAlertNotification([
                         'title'          => "Branch Request {$statusText}",
                         'message'        => "Your Branch Request ({$branchRequest->request_no}) status has been updated to {$statusText}.",
                         'type'           => 'branch_request_status_update',
@@ -182,20 +189,14 @@ class BranchRequestController extends Controller implements HasMiddleware
                         'reference_id'   => $branchRequest->id,
                         'reference_type' => BranchRequest::class,
                         'url'            => '/branch-requests',
-                    ]));
+                    ]);
+
+                    $recipientService = app(NotificationRecipientService::class);
+                    foreach ($recipientService->actorAndReportingManager($requester) as $target) {
+                        $target->notify($notification);
+                    }
                 } catch (\Throwable $notifyErr) {
                     Log::error('Failed to send Branch Request notification to requester: ' . $notifyErr->getMessage());
-                }
-
-                // 2. Email Notification
-                if ($requester->email) {
-                    try {
-                        \Illuminate\Support\Facades\Mail::to($requester->email)->send(
-                            new \App\Mail\BranchRequestMail($branchRequest, $branchRequest->status)
-                        );
-                    } catch (\Throwable $mailErr) {
-                        Log::error('Failed to send Branch Request email to requester: ' . $mailErr->getMessage());
-                    }
                 }
             }
 
@@ -282,20 +283,8 @@ class BranchRequestController extends Controller implements HasMiddleware
                 'url' => '/branch-requests/' . $branchRequest->id,
             ]);
 
-            $targets = $recipientService->mergeCollections(
-                $branchRequest->requester ? collect([$branchRequest->requester]) : collect(),
-                $recipientService->branchAdmins($branchRequest->branch)
-            );
-
-            foreach ($targets as $user) {
-                $user->notify($notification);
-            }
-
-            $admins = $recipientService->adminsAndSuperAdmins($branchRequest->branch_id);
-            foreach ($admins as $admin) {
-                if ($admin->email) {
-                    \Illuminate\Support\Facades\Mail::to($admin->email)->send(new \App\Mail\BranchRequestMail($branchRequest, 'approved'));
-                }
+            foreach ($recipientService->actorAndReportingManager($branchRequest->requester) as $target) {
+                $target->notify($notification);
             }
 
             $this->logActivity('ACTIVATE', 'BranchRequest', "Activated branch request: {$branchRequest->request_no}");
@@ -341,13 +330,8 @@ class BranchRequestController extends Controller implements HasMiddleware
                 'url' => '/branch-requests/' . $branchRequest->id,
             ]);
 
-            $targets = $recipientService->mergeCollections(
-                $branchRequest->requester ? collect([$branchRequest->requester]) : collect(),
-                $recipientService->branchAdmins($branchRequest->branch)
-            );
-
-            foreach ($targets as $user) {
-                $user->notify($notification);
+            foreach ($recipientService->actorAndReportingManager($branchRequest->requester) as $target) {
+                $target->notify($notification);
             }
             $this->logActivity('DEACTIVATE', 'BranchRequest', "Deactivated branch request: {$branchRequest->request_no}");
             return response()->json([

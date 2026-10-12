@@ -254,37 +254,30 @@ class ReorderLevelController extends Controller implements HasMiddleware
     public function toggleStatus(string $id)
     {
         try {
-            $reorderLevel = ReorderLevel::query()->find($id);
+            $reorderLevel = ReorderLevel::find($id);
 
             if (!$reorderLevel) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Reorder level not found'
+                    'message' => 'Reorder level not found',
+                    'data' => [],
                 ], 404);
             }
 
-            $reorderLevel->is_active = !$reorderLevel->is_active;
-            $reorderLevel->save();
+            $reorderLevel->update(['is_active' => !$reorderLevel->is_active]);
 
-            Log::info('Reorder level status toggled', [
-                'user_id' => Auth::id(),
-                'reorder_level_id' => $reorderLevel->id,
-                'new_status' => $reorderLevel->is_active
-            ]);
+            $this->logActivity('TOGGLE_STATUS', 'ReorderLevel', "Toggled status for reorder level: {$reorderLevel->id}");
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Reorder level status updated successfully',
-                'data' => [
-                    'id' => $reorderLevel->id,
-                    'is_active' => $reorderLevel->is_active
-                ]
+                'data' => $reorderLevel,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to toggle reorder level status',
-                'error' => $th->getMessage()
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -295,20 +288,14 @@ class ReorderLevelController extends Controller implements HasMiddleware
     public function activate(string $id)
     {
         try {
-            $reorderLevel = ReorderLevel::query()->find($id);
+            $reorderLevel = ReorderLevel::find($id);
 
             if (!$reorderLevel) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Reorder level not found',
+                    'data' => [],
                 ], 404);
-            }
-
-            if ($reorderLevel->is_active) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Reorder level is already active',
-                ], 422);
             }
 
             $reorderLevel->update(['is_active' => true]);
@@ -318,13 +305,13 @@ class ReorderLevelController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Reorder level activated successfully',
-                'data' => $reorderLevel->load(['product', 'productVariant', 'branch'])
+                'data' => $reorderLevel,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to activate reorder level',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -335,20 +322,14 @@ class ReorderLevelController extends Controller implements HasMiddleware
     public function deactivate(string $id)
     {
         try {
-            $reorderLevel = ReorderLevel::query()->find($id);
+            $reorderLevel = ReorderLevel::find($id);
 
             if (!$reorderLevel) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Reorder level not found',
+                    'data' => [],
                 ], 404);
-            }
-
-            if (!$reorderLevel->is_active) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Reorder level is already inactive',
-                ], 422);
             }
 
             $reorderLevel->update(['is_active' => false]);
@@ -358,13 +339,13 @@ class ReorderLevelController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Reorder level deactivated successfully',
-                'data' => $reorderLevel->load(['product', 'productVariant', 'branch'])
+                'data' => $reorderLevel,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to deactivate reorder level',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }

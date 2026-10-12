@@ -12,7 +12,6 @@ use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use App\Traits\ActivityLogTrait;
 
-
 class PurchaseOrderItemController extends Controller implements HasMiddleware
 {
     use ActivityLogTrait;
@@ -235,20 +234,14 @@ class PurchaseOrderItemController extends Controller implements HasMiddleware
     public function activate(string $id)
     {
         try {
-            $purchaseOrderItem = PurchaseOrderItem::query()->find($id);
+            $purchaseOrderItem = PurchaseOrderItem::find($id);
 
             if (!$purchaseOrderItem) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Purchase order item not found',
+                    'data' => [],
                 ], 404);
-            }
-
-            if ($purchaseOrderItem->is_active) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Purchase order item is already active',
-                ], 422);
             }
 
             $purchaseOrderItem->update(['is_active' => true]);
@@ -258,16 +251,13 @@ class PurchaseOrderItemController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Purchase order item activated successfully',
-                'data' => [
-                    'id' => $purchaseOrderItem->id,
-                    'is_active' => $purchaseOrderItem->is_active,
-                ]
+                'data' => $purchaseOrderItem,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to activate purchase order item',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -278,24 +268,14 @@ class PurchaseOrderItemController extends Controller implements HasMiddleware
     public function deactivate(string $id)
     {
         try {
-            $purchaseOrderItem = PurchaseOrderItem::query()->find($id);
+            $purchaseOrderItem = PurchaseOrderItem::find($id);
 
             if (!$purchaseOrderItem) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Purchase order item not found',
+                    'data' => [],
                 ], 404);
-            }
-
-            if (!$purchaseOrderItem->is_active) {
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'Purchase order item is already inactive',
-                    'data' => [
-                        'id' => $purchaseOrderItem->id,
-                        'is_active' => $purchaseOrderItem->is_active,
-                    ]
-                ]);
             }
 
             $purchaseOrderItem->update(['is_active' => false]);
@@ -305,16 +285,13 @@ class PurchaseOrderItemController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Purchase order item deactivated successfully',
-                'data' => [
-                    'id' => $purchaseOrderItem->id,
-                    'is_active' => $purchaseOrderItem->is_active,
-                ]
+                'data' => $purchaseOrderItem,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to deactivate purchase order item',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }

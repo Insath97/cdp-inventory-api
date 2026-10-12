@@ -147,25 +147,15 @@ class ProductController extends Controller implements HasMiddleware
                 }
             }
 
-            $data['is_variant'] = true;
+            // SKU/barcode live on the product itself now — the variant layer
+            // is retired (old product_variants rows stay readable for
+            // historical documents, but nothing new is created there).
+            $data['is_variant'] = false;
             $data['is_active'] = $data['is_active'] ?? true;
             $data['is_default'] = $data['is_default'] ?? false;
-
-            $variants = $data['variants'] ?? [];
             unset($data['variants']);
 
             $product = Product::create($data);
-
-            // Create variants if any
-            if (!empty($variants) && is_array($variants)) {
-                foreach ($variants as $variantData) {
-                    $variantData['product_id'] = $product->id;
-                    if (empty($variantData['variant_name'])) {
-                        $variantData['variant_name'] = $variantData['sku'] ?? ($product->product_name . ' Variant');
-                    }
-                    ProductVariant::create($variantData);
-                }
-            }
 
             DB::commit();
 
@@ -263,6 +253,86 @@ class ProductController extends Controller implements HasMiddleware
                 ->groupBy('branches.id', 'branches.name')
                 ->get();
 
+            // Neither a branch check-out nor a person assignment writes a
+            // stock_ledger row, so the raw ledger balance still counts units
+            // that have already left the shelf. Both are deducted below so
+            // "stock in hand" means what is genuinely still free to issue.
+            //
+            // Keys are stringified branch ids ('' for a null branch) so they
+            // line up with the ledger's own "No Branch" bucket.
+            $branchKey = fn ($id) => (string) ($id ?? '');
+
+            $checkedOutByBranch = DB::table('check_outs')
+                ->where('product_id', $id)
+                ->whereNull('deleted_at')
+                ->where('status', 'completed')
+                ->select('branch_id', DB::raw('SUM(quantity) as qty'))
+                ->groupBy('branch_id')
+                ->get()
+                ->mapWithKeys(fn ($r) => [$branchKey($r->branch_id) => floatval($r->qty)]);
+
+            $assignedByBranch = DB::table('product_assignments')
+                ->where('product_variant_id', $id)
+                ->whereNull('deleted_at')
+                ->where('is_active', 1)
+                ->select('branch_id', DB::raw('SUM(quantity) as qty'))
+                ->groupBy('branch_id')
+                ->get()
+                ->mapWithKeys(fn ($r) => [$branchKey($r->branch_id) => floatval($r->qty)]);
+
+            $branchStocks = $branchStocks->map(function ($row) use ($branchKey, $checkedOutByBranch, $assignedByBranch) {
+                $key = $branchKey($row->branch_id);
+                $ledgerBalance = floatval($row->current_balance);
+                $checkedOut = $checkedOutByBranch->get($key, 0.0);
+                $assigned = $assignedByBranch->get($key, 0.0);
+
+                return [
+                    'branch_id' => $row->branch_id,
+                    'branch_name' => $row->branch_name,
+                    'total_in' => floatval($row->total_in),
+                    'total_out' => floatval($row->total_out),
+                    'ledger_balance' => $ledgerBalance,
+                    'checked_out' => $checkedOut,
+                    'assigned' => $assigned,
+                    'current_balance' => $ledgerBalance - $checkedOut - $assigned,
+                ];
+            });
+
+            // A branch can hold check-outs or assignments without ever having
+            // a ledger row of its own; without this it would silently vanish
+            // from the table while still being subtracted from the total.
+            $ledgerKeys = $branchStocks->map(fn ($r) => $branchKey($r['branch_id']))->all();
+            $branchNames = \App\Models\Branch::pluck('name', 'id');
+
+            foreach ($checkedOutByBranch->keys()->merge($assignedByBranch->keys())->unique() as $rawKey) {
+                // PHP turns a numeric string array key back into an int, so the
+                // keys coming out of the collections above are ints while
+                // $ledgerKeys holds strings — compare them as strings or every
+                // numbered branch looks "missing" and gets duplicated.
+                $key = (string) $rawKey;
+                if (in_array($key, $ledgerKeys, true)) {
+                    continue;
+                }
+                $checkedOut = $checkedOutByBranch->get($key, 0.0);
+                $assigned = $assignedByBranch->get($key, 0.0);
+                $branchStocks->push([
+                    'branch_id' => $key === '' ? null : (int) $key,
+                    'branch_name' => $key === '' ? 'No Branch' : ($branchNames[(int) $key] ?? 'No Branch'),
+                    'total_in' => 0.0,
+                    'total_out' => 0.0,
+                    'ledger_balance' => 0.0,
+                    'checked_out' => $checkedOut,
+                    'assigned' => $assigned,
+                    'current_balance' => -($checkedOut + $assigned),
+                ]);
+            }
+
+            $branchStocks = $branchStocks->values();
+
+            $totalLedgerBalance = $branchStocks->sum('ledger_balance');
+            $totalCheckedOut = $branchStocks->sum('checked_out');
+            $totalAssigned = $branchStocks->sum('assigned');
+
             // Total stock across all branches (including entries without branch)
             $totalStockInHand = $branchStocks->sum('current_balance');
 
@@ -317,12 +387,7 @@ class ProductController extends Controller implements HasMiddleware
                     ];
                 });
 
-            // $product->purchase_price (via the model accessor) reflects the
-            // persisted column only. For this one endpoint we also want the
-            // GRN/supplier_products fallback for a brand-new product that has
-            // no persisted price yet — resolved separately, not written back
-            // onto the model (an accessor for 'purchase_price' already exists
-            // and would win over any raw attribute we tried to set here).
+
             $resolvedPrice = ProductPriceService::resolveCurrentPrice((int) $id);
 
             $priceHistory = \App\Models\ProductPriceHistory::where('product_id', $id)
@@ -331,9 +396,7 @@ class ProductController extends Controller implements HasMiddleware
                 ->take(20)
                 ->get(['id', 'unit_price', 'source_type', 'source_id', 'effective_date']);
 
-            // Every price history row today is sourced from a GRN receipt —
-            // resolve the human-readable GRN number so the report doesn't have
-            // to show the raw source_id.
+
             $grnSourceIds = $priceHistory->where('source_type', \App\Models\Grn::class)->pluck('source_id')->unique();
             $grnNumbersById = \App\Models\Grn::whereIn('id', $grnSourceIds)->pluck('grn_number', 'id');
 
@@ -350,11 +413,7 @@ class ProductController extends Controller implements HasMiddleware
                 ];
             });
 
-            // If the scanned QR encoded a per-unit serial number (see
-            // GrnsIndex.jsx sticker generators), resolve it to the exact
-            // physical unit's receiving record — this is what actually makes
-            // a scan unique, since product_id/variant_id alone is shared by
-            // every unit of that variant.
+
             $scannedUnit = null;
             if ($request->filled('serial')) {
                 $serialRecord = \App\Models\GrnItemSerial::where('product_id', $id)
@@ -396,6 +455,9 @@ class ProductController extends Controller implements HasMiddleware
                     'product' => $product,
                     'last_grn_unit_price' => $resolvedPrice,
                     'total_stock_in_hand' => floatval($totalStockInHand),
+                    'total_ledger_balance' => floatval($totalLedgerBalance),
+                    'total_checked_out' => floatval($totalCheckedOut),
+                    'total_assigned' => floatval($totalAssigned),
                     'branch_stocks' => $branchStocks,
                     'variant_stocks' => $variantStocks,
                     'recent_grns' => $recentGrns,
@@ -422,29 +484,57 @@ class ProductController extends Controller implements HasMiddleware
         try {
             $serials = \App\Models\GrnItemSerial::where('product_id', $id)
                 ->with(['productVariant'])
-                ->orderByDesc('id')
+                ->orderBy('serial_number')
                 ->get();
 
-            $activeAssignments = \App\Models\ProductAssignment::whereIn('grn_item_serial_id', $serials->pluck('id'))
-                ->where('is_active', true)
-                ->with(['user', 'assignedBranch'])
+            $assignmentsBySerial = \App\Models\ProductAssignment::whereIn('grn_item_serial_id', $serials->pluck('id'))
+                ->with(['user', 'assignedBranch', 'returnedBy'])
+                ->orderByDesc('issue_date')
+                ->orderByDesc('id')
                 ->get()
-                ->keyBy('grn_item_serial_id');
+                ->groupBy('grn_item_serial_id');
 
-            $rows = $serials->map(function ($s) use ($activeAssignments) {
-                $assignment = $activeAssignments->get($s->id);
-                return [
+            $rows = $serials->flatMap(function ($s) use ($assignmentsBySerial) {
+                $history = $assignmentsBySerial->get($s->id);
+
+                if (! $history || $history->isEmpty()) {
+                    return [[
+                        'assignment_code' => null,
+                        'serial_number' => $s->serial_number,
+                        'variant_sku' => $s->productVariant?->sku,
+                        'person_name' => null,
+                        'group_name' => null,
+                        'branch' => null,
+                        'department_name' => null,
+                        'quantity' => null,
+                        'issue_date' => null,
+                        'returned_at' => null,
+                        'returned_by_name' => null,
+                        'remarks' => null,
+                        'status' => 'Available',
+                    ]];
+                }
+
+                return $history->map(fn ($a) => [
+                    'assignment_code' => $a->assignment_code,
                     'serial_number' => $s->serial_number,
                     'variant_sku' => $s->productVariant?->sku,
-                    'branch' => $assignment?->assignedBranch?->name ?? $assignment?->branch_name,
-                    'assigned_to' => $assignment?->user?->name ?? $assignment?->person_name,
-                    'status' => $assignment ? 'Assigned' : 'Available',
-                ];
-            });
+                    'person_name' => $a->user?->name ?? $a->person_name,
+                    'group_name' => $a->group_name,
+                    'branch' => $a->assignedBranch?->name ?? $a->branch_name,
+                    'department_name' => $a->department_name,
+                    'quantity' => $a->quantity,
+                    'issue_date' => $a->issue_date,
+                    'returned_at' => $a->returned_at,
+                    'returned_by_name' => $a->returnedBy?->name,
+                    'remarks' => $a->remarks,
+                    'status' => $a->is_active ? 'Assigned' : 'Returned',
+                ])->all();
+            })->values();
 
             return response()->json([
                 'status' => 'success',
-                'message' => 'Serial assignment breakdown retrieved successfully',
+                'message' => 'Serial assignment history retrieved successfully',
                 'data' => $rows,
             ]);
         } catch (\Throwable $th) {
@@ -552,39 +642,12 @@ class ProductController extends Controller implements HasMiddleware
                 }
             }
 
-            $data['is_variant'] = true;
 
-            $variants = $data['variants'] ?? null;
+            $data['is_variant'] = false;
             unset($data['variants']);
 
             $product->update($data);
 
-            if ($request->has('variants')) {
-                $variants = $variants ?? [];
-                if (is_array($variants)) {
-                    $keepIds = collect($variants)->pluck('id')->filter()->toArray();
-                    $product->variants()->whereNotIn('id', $keepIds)->delete();
-
-                    foreach ($variants as $variantData) {
-                        if (empty($variantData['variant_name'])) {
-                            $variantData['variant_name'] = $variantData['sku'] ?? ($product->product_name . ' Variant');
-                        }
-
-                        if (!empty($variantData['id']) && is_numeric($variantData['id']) && $variantData['id'] < 1000000000000) {
-                            $variant = ProductVariant::find($variantData['id']);
-                            if ($variant) {
-                                $variant->update($variantData);
-                            }
-                        } else {
-                            $variantData['product_id'] = $product->id;
-                            unset($variantData['id']);
-                            ProductVariant::create($variantData);
-                        }
-                    }
-                }
-            }
-
-            // Auto-ensure the supplier_products pivot link when supplier_id is set
             if ($product->supplier_id) {
                 app(SupplierProductService::class)->ensureLinked(
                     (int) $product->supplier_id,
@@ -630,13 +693,8 @@ class ProductController extends Controller implements HasMiddleware
                 ], 404);
             }
 
-            // Prevent deletion if product is referenced in GRN items, PO items, stock ledgers, assignments, or returns
             $hasGrnItems = DB::table('grn_items')->where('product_id', $id)->exists();
-            // purchase_order_items points at product_variants.id, not products.id,
-            // so this has to resolve the product's variants first.
-            $hasPoItems = DB::table('purchase_order_items')
-                ->whereIn('variant_id', DB::table('product_variants')->where('product_id', $id)->select('id'))
-                ->exists();
+            $hasPoItems = DB::table('purchase_order_items')->where('product_id', $id)->exists();
             $hasStockLedger = DB::table('stock_ledger')->where('product_id', $id)->exists();
             $hasAssignments = DB::table('product_assignments')->where('product_variant_id', $id)->exists();
             // product_returns stores its line items as a JSON array of
@@ -695,37 +753,30 @@ class ProductController extends Controller implements HasMiddleware
     public function toggleStatus(string $id)
     {
         try {
-            $product = Product::query()->find($id);
+            $product = Product::find($id);
 
             if (!$product) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Product not found'
+                    'message' => 'Product not found',
+                    'data' => [],
                 ], 404);
             }
 
-            $product->is_active = !$product->is_active;
-            $product->save();
+            $product->update(['is_active' => !$product->is_active]);
 
-            Log::info('Product status toggled', [
-                'user_id' => Auth::id(),
-                'product_id' => $product->id,
-                'new_status' => $product->is_active
-            ]);
+            $this->logActivity('TOGGLE_STATUS', 'Product', "Toggled status for product: {$product->product_name}");
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Product status updated successfully',
-                'data' => [
-                    'id' => $product->id,
-                    'is_active' => $product->is_active
-                ]
+                'data' => $product,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to toggle product status',
-                'error' => $th->getMessage()
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -736,20 +787,14 @@ class ProductController extends Controller implements HasMiddleware
     public function activate(string $id)
     {
         try {
-            $product = Product::query()->find($id);
+            $product = Product::find($id);
 
             if (!$product) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Product not found',
+                    'data' => [],
                 ], 404);
-            }
-
-            if ($product->is_active) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Product is already active',
-                ], 422);
             }
 
             $product->update(['is_active' => true]);
@@ -759,13 +804,13 @@ class ProductController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Product activated successfully',
-                'data' => $product->load(['brand', 'mainCategory', 'subCategory', 'measurement', 'unit', 'container', 'suppliers', 'variants'])
+                'data' => $product,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to activate product',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -776,20 +821,14 @@ class ProductController extends Controller implements HasMiddleware
     public function deactivate(string $id)
     {
         try {
-            $product = Product::query()->find($id);
+            $product = Product::find($id);
 
             if (!$product) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Product not found',
+                    'data' => [],
                 ], 404);
-            }
-
-            if (!$product->is_active) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Product is already inactive',
-                ], 422);
             }
 
             $product->update(['is_active' => false]);
@@ -799,13 +838,13 @@ class ProductController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Product deactivated successfully',
-                'data' => $product->load(['brand', 'mainCategory', 'subCategory', 'measurement', 'unit', 'container', 'suppliers', 'variants'])
+                'data' => $product,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to deactivate product',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }

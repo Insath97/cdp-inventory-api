@@ -11,6 +11,12 @@ return new class extends Migration
      */
     public function up(): void
     {
+        // Guarded: skip if the table already exists (databases that ran the
+        // original 2026_08_05 migration).
+        if (Schema::hasTable('grn_item_serials')) {
+            return;
+        }
+
         Schema::create('grn_item_serials', function (Blueprint $table) {
             $table->id();
             $table->foreignId('grn_item_id')->constrained('grn_items')->cascadeOnDelete();
@@ -31,6 +37,7 @@ return new class extends Migration
      */
     public function down(): void
     {
+        // Dropped by the later 2026_08_05 migration's down().
         Schema::dropIfExists('grn_item_serials');
     }
 };

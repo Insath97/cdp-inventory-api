@@ -573,33 +573,30 @@ class InventoryDashboardController extends Controller implements HasMiddleware
     public function toggleStatus(string $id)
     {
         try {
-            $dashboard = InventoryDashboard::query()->find($id);
+            $dashboard = InventoryDashboard::find($id);
 
             if (!$dashboard) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Inventory dashboard not found'
+                    'message' => 'Inventory dashboard not found',
+                    'data' => [],
                 ], 404);
             }
 
-            $dashboard->is_active = !$dashboard->is_active;
-            $dashboard->save();
+            $dashboard->update(['is_active' => !$dashboard->is_active]);
 
             $this->logActivity('TOGGLE_STATUS', 'InventoryDashboard', "Toggled inventory dashboard status: {$dashboard->name}");
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Inventory dashboard status updated successfully',
-                'data' => [
-                    'id' => $dashboard->id,
-                    'is_active' => $dashboard->is_active
-                ]
+                'data' => $dashboard,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to toggle inventory dashboard status',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -610,21 +607,14 @@ class InventoryDashboardController extends Controller implements HasMiddleware
     public function activate(string $id)
     {
         try {
-            $dashboard = InventoryDashboard::query()->find($id);
+            $dashboard = InventoryDashboard::find($id);
 
             if (!$dashboard) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Inventory dashboard not found',
+                    'data' => [],
                 ], 404);
-            }
-
-            if ($dashboard->is_active) {
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'Inventory dashboard is already active',
-                    'data' => $dashboard
-                ]);
             }
 
             $dashboard->update(['is_active' => true]);
@@ -634,13 +624,13 @@ class InventoryDashboardController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Inventory dashboard activated successfully',
-                'data' => $dashboard
+                'data' => $dashboard,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to activate inventory dashboard',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -651,21 +641,14 @@ class InventoryDashboardController extends Controller implements HasMiddleware
     public function deactivate(string $id)
     {
         try {
-            $dashboard = InventoryDashboard::query()->find($id);
+            $dashboard = InventoryDashboard::find($id);
 
             if (!$dashboard) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Inventory dashboard not found',
+                    'data' => [],
                 ], 404);
-            }
-
-            if (!$dashboard->is_active) {
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'Inventory dashboard is already inactive',
-                    'data' => $dashboard
-                ]);
             }
 
             $dashboard->update(['is_active' => false]);
@@ -675,13 +658,13 @@ class InventoryDashboardController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Inventory dashboard deactivated successfully',
-                'data' => $dashboard
+                'data' => $dashboard,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to deactivate inventory dashboard',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }

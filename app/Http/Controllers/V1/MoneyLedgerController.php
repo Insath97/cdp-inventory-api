@@ -10,9 +10,10 @@ use App\Models\PurchaseReturnNote;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\Middleware;
+use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Support\Facades\Auth;
 
-class MoneyLedgerController extends Controller
+class MoneyLedgerController extends Controller implements HasMiddleware
 {
     public static function middleware(): array
     {

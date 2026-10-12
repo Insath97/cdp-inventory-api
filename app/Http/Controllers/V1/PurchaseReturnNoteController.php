@@ -30,7 +30,7 @@ class PurchaseReturnNoteController extends Controller implements HasMiddleware
         return [
             new Middleware('permission:PurchaseReturnNote Index', only: ['index', 'show']),
             new Middleware('permission:PurchaseReturnNote Create', only: ['store']),
-            new Middleware('permission:PurchaseReturnNote Update', only: ['update']),
+            new Middleware('permission:PurchaseReturnNote Update', only: ['update', 'activate', 'deactivate']),
             new Middleware('permission:PurchaseReturnNote Delete', only: ['destroy']),
         ];
     }
@@ -196,19 +196,9 @@ class PurchaseReturnNoteController extends Controller implements HasMiddleware
                 ]);
 
                 $recipientService = app(NotificationRecipientService::class);
-                // Branch-based notification commented out - PRN does not use branch
-                // $targets = $recipientService->usersByBranchRoles($prn->branch, ['ADMIN', 'SUPER ADMIN', 'REPORTING MANAGER']);
-                // if ($targets->isEmpty()) {
-                $targets = $recipientService->usersByRoles(['ADMIN', 'SUPER ADMIN']);
-                // }
 
-                foreach ($targets as $targetUser) {
-                    $targetUser->notify($notification);
-                }
-
-                $reportingManager = $recipientService->reportingManagerOf(Auth::user(), ['PurchaseReturnNote Update']);
-                if ($reportingManager && !$targets->contains('id', $reportingManager->id)) {
-                    $reportingManager->notify($notification);
+                foreach ($recipientService->actorAndReportingManager(Auth::user()) as $target) {
+                    $target->notify($notification);
                 }
             } catch (\Throwable $notifyErr) {
                 Log::error('Failed to send PRN creation notification: ' . $notifyErr->getMessage());
@@ -400,7 +390,11 @@ class PurchaseReturnNoteController extends Controller implements HasMiddleware
                             'reference_type' => PurchaseReturnNote::class,
                             'url' => '/purchase-returns/' . $prn->id,
                         ]);
-                        $creator->notify($approvalNotification);
+
+                        $recipientService = app(NotificationRecipientService::class);
+                        foreach ($recipientService->actorAndReportingManager($creator) as $target) {
+                            $target->notify($approvalNotification);
+                        }
                     }
                 } catch (\Throwable $notifyError) {
                     Log::error('Failed to send PRN approved notification: ' . $notifyError->getMessage());
@@ -509,24 +503,14 @@ class PurchaseReturnNoteController extends Controller implements HasMiddleware
     public function activate(string $id)
     {
         try {
-            $product = PurchaseReturnNote::query()->find($id);
+            $product = PurchaseReturnNote::find($id);
 
-            if (!$product) {
+            if (! $product) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Purchase return note not found',
+                    'data' => [],
                 ], 404);
-            }
-
-            if ($product->is_active) {
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'Purchase return note is already active',
-                    'data' => [
-                        'id' => $product->id,
-                        'is_active' => $product->is_active,
-                    ]
-                ]);
             }
 
             $product->update(['is_active' => true]);
@@ -536,16 +520,13 @@ class PurchaseReturnNoteController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Purchase return note activated successfully',
-                'data' => [
-                    'id' => $product->id,
-                    'is_active' => $product->is_active,
-                ]
+                'data' => $product,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to activate product',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -556,24 +537,14 @@ class PurchaseReturnNoteController extends Controller implements HasMiddleware
     public function deactivate(string $id)
     {
         try {
-            $product = PurchaseReturnNote::query()->find($id);
+            $product = PurchaseReturnNote::find($id);
 
-            if (!$product) {
+            if (! $product) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Purchase return note not found',
+                    'data' => [],
                 ], 404);
-            }
-
-            if (!$product->is_active) {
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'Purchase return note is already inactive',
-                    'data' => [
-                        'id' => $product->id,
-                        'is_active' => $product->is_active,
-                    ]
-                ]);
             }
 
             $product->update(['is_active' => false]);
@@ -583,16 +554,13 @@ class PurchaseReturnNoteController extends Controller implements HasMiddleware
             return response()->json([
                 'status' => 'success',
                 'message' => 'Purchase return note deactivated successfully',
-                'data' => [
-                    'id' => $product->id,
-                    'is_active' => $product->is_active,
-                ]
+                'data' => $product,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to deactivate purchase return note',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }

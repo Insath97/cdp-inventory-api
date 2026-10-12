@@ -11,17 +11,22 @@ use Illuminate\Support\Facades\Auth;
 use App\Http\Requests\UpdateSubCategoriesRequest;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Routing\Controllers\Middleware;
+use Illuminate\Routing\Controllers\HasMiddleware;
 use App\Traits\ActivityLogTrait;
 
 
-class SubCategoryController extends Controller
+class SubCategoryController extends Controller implements HasMiddleware
 {
     use ActivityLogTrait;
      public static function middleware(): array
     {
         return [
-           new Middleware('permission:manage sub categories', ['only' => ['index', 'store', 'update', 'destroy']]),
-           new Middleware('permission:view sub categories', ['only' => ['show']]),
+           new Middleware('permission:Sub Category Index', only: ['index']),
+           new Middleware('permission:Sub Category Show|Sub Category Index', only: ['show']),
+           new Middleware('permission:Sub Category Create', only: ['store']),
+           new Middleware('permission:Sub Category Update', only: ['update']),
+           new Middleware('permission:Sub Category Delete', only: ['destroy']),
+           new Middleware('permission:Sub Category Toggle Status', only: ['toggleStatus', 'activate', 'deactivate']),
         ];
     }
 
@@ -232,37 +237,30 @@ class SubCategoryController extends Controller
     public function toggleStatus(string $id)
     {
         try {
-            $subCategory = SubCategory::query()->find($id);
+            $subCategory = SubCategory::find($id);
 
             if (!$subCategory) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Sub category not found'
+                    'message' => 'Sub category not found',
+                    'data' => [],
                 ], 404);
             }
 
-            $subCategory->is_active = !$subCategory->is_active;
-            $subCategory->save();
+            $subCategory->update(['is_active' => !$subCategory->is_active]);
 
-            Log::info('Sub category status toggled', [
-                'user_id' => Auth::id(),
-                'sub_category_id' => $subCategory->id,
-                'new_status' => $subCategory->is_active
-            ]);
+            $this->logActivity('TOGGLE_STATUS', 'SubCategory', "Toggled status for sub category: {$subCategory->name}");
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Sub category status updated successfully',
-                'data' => [
-                    'id' => $subCategory->id,
-                    'is_active' => $subCategory->is_active
-                ]
+                'data' => $subCategory,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to toggle sub category status',
-                'error' => $th->getMessage()
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -270,43 +268,30 @@ class SubCategoryController extends Controller
      public function activate(string $id)
     {
         try {
-            $subCategory = SubCategory::query()->find($id);
+            $subCategory = SubCategory::find($id);
 
-            if (! $subCategory) {
+            if (!$subCategory) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Sub category not found',
+                    'data' => [],
                 ], 404);
-            }
-
-            if ($subCategory->is_active) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Sub category is already active',
-                ], 422);
             }
 
             $subCategory->update(['is_active' => true]);
 
-            Log::info('Sub category activated', [
-                'user_id' => Auth::id(),
-                'sub_category_id' => $subCategory->id,
-            ]);
+            $this->logActivity('ACTIVATE', 'SubCategory', "Activated sub category: {$subCategory->name}");
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Sub category activated successfully',
-                'data' => [
-                    'id' => $subCategory->id,
-                    'is_active' => $subCategory->is_active,
-                ]
+                'data' => $subCategory,
             ]);
-        } catch (
-            \Throwable $th) {
+        } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to activate sub category',
-                'error' => $th->getMessage(),
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -314,42 +299,30 @@ class SubCategoryController extends Controller
     public function deactivate(string $id)
     {
         try {
-            $subCategory = SubCategory::query()->find($id);
+            $subCategory = SubCategory::find($id);
 
-            if (! $subCategory) {
+            if (!$subCategory) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Sub category not found',
+                    'data' => [],
                 ], 404);
-            }
-
-            if (! $subCategory->is_active) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Sub category is already inactive',
-                ], 422);
             }
 
             $subCategory->update(['is_active' => false]);
 
-            Log::info('Sub category deactivated', [
-                'user_id' => Auth::id(),
-                'sub_category_id' => $subCategory->id,
-            ]);
+            $this->logActivity('DEACTIVATE', 'SubCategory', "Deactivated sub category: {$subCategory->name}");
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Sub category deactivated successfully',
-                'data' => [
-                    'id' => $subCategory->id,
-                    'is_active' => $subCategory->is_active,
-                ]
+                'data' => $subCategory,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to deactivate sub category',
-                'error' => $th->getMessage(),
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }

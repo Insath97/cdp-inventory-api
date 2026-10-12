@@ -2,11 +2,8 @@
 
 namespace App\Http\Requests;
 
-use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Contracts\Validation\Validator;
-use Illuminate\Http\Exceptions\HttpResponseException;
-
-class UpdateProductRequest extends FormRequest
+class UpdateProductRequest extends BaseFormRequest
 {
     /**
      * Determine if the user is authorized to make this request.
@@ -62,6 +59,8 @@ class UpdateProductRequest extends FormRequest
             'container_id' => 'nullable|exists:containers,id',
             'supplier_id' => 'nullable|exists:suppliers,id',
             'product_code' => 'sometimes|required|string|max:255|unique:products,product_code,' . $id,
+            'sku' => 'nullable|string|max:255|unique:products,sku,' . $id,
+            'barcode' => 'nullable|string|max:255|unique:products,barcode,' . $id,
             'id_number' => 'nullable|string|max:255',
             'product_name' => 'sometimes|required|string|max:255',
             'slug' => 'nullable|string|max:255|unique:products,slug,' . $id,
@@ -71,24 +70,6 @@ class UpdateProductRequest extends FormRequest
             'is_default' => 'boolean',
             'is_pending_setup' => 'nullable|boolean',
             'track_serial_numbers' => 'boolean',
-
-            'variants' => 'nullable|array',
-            'variants.*.variant_name' => 'nullable|string|max:255',
-            'variants.*.supplier_id' => 'nullable|exists:suppliers,id',
-            'variants.*.code' => 'nullable|string|max:255',
-            'variants.*.color' => 'nullable|string|max:255',
-            'variants.*.size' => 'nullable|string|max:255',
-            'variants.*.material' => 'nullable|string|max:255',
-            'variants.*.style' => 'nullable|string|max:255',
-            'variants.*.description' => 'nullable|string',
-            'variants.*.is_default' => 'boolean',
-            'variants.*.is_active' => 'boolean',
-            'variants.*.brand_id' => 'nullable|exists:brands,id',
-            'variants.*.main_category_id' => 'nullable|exists:main_categories,id',
-            'variants.*.sub_category_id' => 'nullable|exists:sub_categories,id',
-            'variants.*.measurement_id' => 'nullable|exists:measurement_units,id',
-            'variants.*.unit_id' => 'nullable|exists:units,id',
-            'variants.*.container_id' => 'nullable|exists:containers,id',
         ];
 
         $rules['product_type'] = 'nullable|string|in:IT,Admin';
@@ -96,69 +77,4 @@ class UpdateProductRequest extends FormRequest
         return $rules;
     }
 
-    /**
-     * sku/barcode uniqueness needs to ignore each variant's own row (by its
-     * own `id`, if it already exists), which the declarative `unique` rule
-     * can't express per-array-item — so it's checked manually here instead.
-     */
-    public function withValidator(Validator $validator): void
-    {
-        $validator->after(function (Validator $validator) {
-            $variants = $this->input('variants', []);
-            if (!is_array($variants)) {
-                return;
-            }
-
-            $seenSkus = [];
-            $seenBarcodes = [];
-            foreach ($variants as $i => $variant) {
-                $variantId = $variant['id'] ?? null;
-                foreach (['sku', 'barcode'] as $field) {
-                    $value = $variant[$field] ?? null;
-                    if (empty($value)) {
-                        $validator->errors()->add("variants.$i.$field", "The $field field is required.");
-                        continue;
-                    }
-
-                    $seen = $field === 'sku' ? $seenSkus : $seenBarcodes;
-                    if (in_array($value, $seen, true)) {
-                        $validator->errors()->add("variants.$i.$field", "This $field is used by another variant in this request.");
-                    }
-
-                    $exists = \App\Models\ProductVariant::where($field, $value)
-                        ->when($variantId, fn ($q) => $q->where('id', '!=', $variantId))
-                        ->exists();
-                    if ($exists) {
-                        $validator->errors()->add("variants.$i.$field", "This $field has already been taken.");
-                    }
-
-                    if ($field === 'sku') {
-                        $seenSkus[] = $value;
-                    } else {
-                        $seenBarcodes[] = $value;
-                    }
-                }
-            }
-        });
-    }
-
-    protected function failedValidation(Validator $validator)
-    {
-        $errorMessages = $validator->errors();
-        $fieldErrors = collect($errorMessages->getMessages())->map(function ($messages, $field) {
-            return [
-                'field' => $field,
-                'messages' => $messages,
-            ];
-        })->values();
-
-        $message = $fieldErrors->count() > 1
-            ? 'There are multiple validation errors. Please review the form and correct the issues.'
-            : 'There is an issue with the input for ' . $fieldErrors->first()['field'] . '.';
-
-        throw new HttpResponseException(response()->json([
-            'message' => $message,
-            'errors' => $fieldErrors,
-        ], 422));
-    }
 }

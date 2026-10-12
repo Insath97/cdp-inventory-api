@@ -15,6 +15,8 @@ class Product extends Model
         'container_id',
         'supplier_id',
         'product_code',
+        'sku',
+        'barcode',
         'id_number',
         'product_name',
         'slug',
@@ -77,6 +79,8 @@ class Product extends Model
             $q->where('product_name', 'LIKE', "%{$search}%")
                 ->orWhere('description', 'LIKE', "%{$search}%")
                 ->orWhere('product_code', 'LIKE', "%{$search}%")
+                ->orWhere('sku', 'LIKE', "%{$search}%")
+                ->orWhere('barcode', 'LIKE', "%{$search}%")
                 ->orWhere('id_number', 'LIKE', "%{$search}%");
         });
     }

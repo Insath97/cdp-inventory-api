@@ -24,7 +24,7 @@ class RoleController extends Controller implements HasMiddleware
         return [
             new Middleware('permission:Role Index', only: ['index', 'show']),
             new Middleware('permission:Role Create', only: ['store']),
-            new Middleware('permission:Role Update', only: ['update']),
+            new Middleware('permission:Role Update', only: ['update', 'activate', 'deactivate']),
             new Middleware('permission:Role Delete', only: ['destroy']),
         ];
     }
@@ -268,43 +268,30 @@ class RoleController extends Controller implements HasMiddleware
      public function activate(string $id)
     {
         try {
-            $role = Role::query()->find($id);
+            $role = Role::find($id);
 
-            if (! $role) {
+            if (!$role) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Role not found',
+                    'data' => [],
                 ], 404);
-            }
-
-            if ($role->is_active) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Role is already active',
-                ], 422);
             }
 
             $role->update(['is_active' => true]);
 
-            Log::info('Role activated', [
-                'user_id' => Auth::id(),
-                'role_id' => $role->id,
-            ]);
+            $this->logActivity('ACTIVATE', 'Role', "Activated role: {$role->name}");
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Role activated successfully',
-                'data' => [
-                    'id' => $role->id,
-                    'is_active' => $role->is_active,
-                ]
+                'data' => $role,
             ]);
-        } catch (
-            \Throwable $th) {
+        } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to activate role',
-                'error' => $th->getMessage(),
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -313,9 +300,9 @@ class RoleController extends Controller implements HasMiddleware
      public function deactivate(string $id)
     {
         try {
-            $role = Role::query()->find($id);
+            $role = Role::find($id);
 
-            if (! $role) {
+            if (!$role) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Role not found',
@@ -323,28 +310,14 @@ class RoleController extends Controller implements HasMiddleware
                 ], 404);
             }
 
-            if (! $role->is_active) {
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'Role is already inactive',
-                    'data' => [
-                        'id' => $role->id,
-                        'is_active' => (bool) $role->is_active,
-                    ],
-                ]);
-            }
+            $role->update(['is_active' => false]);
 
-            $role->update(['is_active' => 0]);
-
-            $this->logActivity('DEACTIVATE', 'Role', "Deactivated role: {$role->id}");
+            $this->logActivity('DEACTIVATE', 'Role', "Deactivated role: {$role->name}");
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Role deactivated successfully',
-                'data' => [
-                    'id' => $role->id,
-                    'is_active' => (bool) $role->is_active,
-                ],
+                'data' => $role,
             ]);
         } catch (\Throwable $th) {
             return response()->json([

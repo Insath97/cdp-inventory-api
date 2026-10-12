@@ -7,12 +7,13 @@ use Illuminate\Http\Request;
 use App\Models\SupplierProduct;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Routing\Controllers\Middleware;
+use Illuminate\Routing\Controllers\HasMiddleware;
 use App\Traits\ActivityLogTrait;
 use App\Http\Requests\CreateSupplierProductsRequest;
 use App\Http\Requests\UpdateSupplierProductsRequest;
 use App\Services\SupplierProductService;
 
-class SupplierProductsController extends Controller
+class SupplierProductsController extends Controller implements HasMiddleware
 {
     use ActivityLogTrait;
 
@@ -242,20 +243,14 @@ class SupplierProductsController extends Controller
     public function activate(string $id)
     {
         try {
-            $supplierProduct = SupplierProduct::query()->find($id);
+            $supplierProduct = SupplierProduct::find($id);
 
             if (!$supplierProduct) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Supplier product not found',
+                    'data' => [],
                 ], 404);
-            }
-
-            if ($supplierProduct->is_active) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Supplier product is already active',
-                ], 422);
             }
 
             $supplierProduct->update(['is_active' => true]);
@@ -265,16 +260,13 @@ class SupplierProductsController extends Controller
             return response()->json([
                 'status' => 'success',
                 'message' => 'Supplier product activated successfully',
-                'data' => [
-                    'id' => $supplierProduct->id,
-                    'is_active' => $supplierProduct->is_active,
-                ]
+                'data' => $supplierProduct,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to activate supplier product',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -285,24 +277,14 @@ class SupplierProductsController extends Controller
     public function deactivate(string $id)
     {
         try {
-            $supplierProduct = SupplierProduct::query()->find($id);
+            $supplierProduct = SupplierProduct::find($id);
 
             if (!$supplierProduct) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Supplier product not found',
+                    'data' => [],
                 ], 404);
-            }
-
-            if (!$supplierProduct->is_active) {
-                return response()->json([
-                    'status' => 'success',
-                    'message' => 'Supplier product is already inactive',
-                    'data' => [
-                        'id' => $supplierProduct->id,
-                        'is_active' => $supplierProduct->is_active,
-                    ]
-                ]);
             }
 
             $supplierProduct->update(['is_active' => false]);
@@ -312,16 +294,13 @@ class SupplierProductsController extends Controller
             return response()->json([
                 'status' => 'success',
                 'message' => 'Supplier product deactivated successfully',
-                'data' => [
-                    'id' => $supplierProduct->id,
-                    'is_active' => $supplierProduct->is_active,
-                ]
+                'data' => $supplierProduct,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to deactivate supplier product',
-                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $th->getMessage() : 'Internal server error',
             ], 500);
         }
     }
